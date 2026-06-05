@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自定义出图 - Lens Drawing</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="workspace">
+
+<!-- Top Bar -->
+<header class="topbar">
+  <a href="/" class="back-btn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    <span>返回</span>
+  </a>
+  <h2 class="page-title">自定义出图</h2>
+  <div class="topbar-actions">
+    <button class="btn-primary" id="btn-save-return" style="display:none;">保存并返回</button>
+    <button class="btn-icon" id="btn-export" title="导出PDF">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <button class="btn-icon" id="btn-reset" title="重置参数">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- Main Layout -->
+<div class="workspace-layout">
+
+  <!-- Left Sidebar: Parameters -->
+  <aside class="param-panel">
+    <div class="param-scroll">
+
+      <!-- ─── Card 1: 镜片参数 ─── -->
+      <div class="param-card" id="card-lens-params">
+        <div class="card-header">
+          <div class="card-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <span class="card-title">镜片参数</span>
+        </div>
+
+        <!-- Lens Type -->
+        <div class="param-row lens-type-row">
+          <label class="radio-label"><input type="radio" name="lens_type" value="single" checked> 单片</label>
+          <label class="radio-label"><input type="radio" name="lens_type" value="doublet"> 双胶合</label>
+          <label class="radio-label"><input type="radio" name="lens_type" value="triplet"> 三胶合</label>
+        </div>
+
+        <div class="card-divider"></div>
+
+        <!-- Glass -->
+        <div class="param-row">
+          <label>Glass 1</label>
+          <input type="text" id="glass_name" value="H-FK61B">
+        </div>
+        <div class="param-row lens2-field">
+          <label>Glass 2</label>
+          <input type="text" id="glass2" value="H-ZLAF55D">
+        </div>
+        <div class="param-row lens3-field">
+          <label>Glass 3</label>
+          <input type="text" id="glass3" value="H-ZF11">
+        </div>
+
+        <!-- Thickness -->
+        <div class="param-row">
+          <label>T1 (中心厚度 1)</label>
+          <input type="number" step="0.01" id="T" value="5.4">
+        </div>
+        <div class="param-row lens2-field">
+          <label>T2 (中心厚度 2)</label>
+          <input type="number" step="0.01" id="T2" value="1.4">
+        </div>
+        <div class="param-row lens3-field">
+          <label>T3 (中心厚度 3)</label>
+          <input type="number" step="0.01" id="T3" value="3">
+        </div>
+
+        <!-- Radius -->
+        <div class="param-row">
+          <label>R1 (左曲率)</label>
+          <input type="number" step="0.1" id="R1" value="35.406">
+        </div>
+        <div class="param-row">
+          <label>R2 (右曲率)</label>
+          <input type="number" step="0.1" id="R2" value="-35.259">
+        </div>
+        <div class="param-row lens2-field">
+          <label>R3 (右曲率)</label>
+          <input type="number" step="0.1" id="R3" value="147.008">
+        </div>
+        <div class="param-row lens3-field">
+          <label>R4 (右曲率)</label>
+          <input type="number" step="0.1" id="R4" value="-147.008">
+        </div>
+
+        <!-- Diameter -->
+        <div class="param-row">
+          <label>MD1 (机械口径 1)</label>
+          <input type="number" step="0.01" id="MD" value="13.5">
+        </div>
+        <div class="param-row lens2-field">
+          <label>MD2 (机械口径 2)</label>
+          <input type="number" step="0.01" id="MD2" value="13.5">
+        </div>
+        <div class="param-row lens3-field">
+          <label>MD3 (机械口径 3)</label>
+          <input type="number" step="0.01" id="MD3" value="12">
+        </div>
+
+        <!-- Clear Aperture -->
+        <div class="param-row">
+          <label>AD1 (左净口径)</label>
+          <input type="number" step="0.01" id="AD1" value="13.5">
+        </div>
+        <div class="param-row">
+          <label>AD2 (右净口径)</label>
+          <input type="number" step="0.01" id="AD2" value="13.5">
+        </div>
+        <div class="param-row lens2-field">
+          <label>AD3 (右净口径)</label>
+          <input type="number" step="0.01" id="AD3" value="12">
+        </div>
+        <div class="param-row lens3-field">
+          <label>AD4 (右净口径)</label>
+          <input type="number" step="0.01" id="AD4" value="12">
+        </div>
+
+        <div class="card-divider dashed"></div>
+
+        <!-- Part Info -->
+        <div class="param-row">
+          <label>Part Name</label>
+          <input type="text" id="part_name" value="singlelen">
+        </div>
+        <div class="param-row">
+          <label>Part No.</label>
+          <input type="text" id="part_no" value="100.2.00888">
+        </div>
+      </div>
+
+      <!-- ─── Card 2: 镀膜参数 ─── -->
+      <div class="param-card">
+        <div class="card-header">
+          <div class="card-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+          </div>
+          <span class="card-title">镀膜参数</span>
+        </div>
+
+        <!-- 预设方案 -->
+        <div class="param-row" style="margin-bottom:8px;">
+          <label>预设方案</label>
+          <select id="coat_preset">
+            <option value="Custom">自定义</option>
+            <option value="SQ-A1">SQ-A1</option>
+            <option value="SQ-A3">SQ-A3</option>
+            <option value="SQ-A5">SQ-A5</option>
+          </select>
+        </div>
+
+        <div class="coat-dual-col">
+          <!-- S1 Column -->
+          <div class="coat-col">
+            <div class="coat-col-header">S1</div>
+            <div class="coat-field">
+              <label>Wave 1</label>
+              <input type="text" id="coat_s1_wave1" value="420-680">
+            </div>
+            <div class="coat-field">
+              <label>Wave 2</label>
+              <input type="text" id="coat_s1_wave2" value="850/940">
+            </div>
+            <div class="coat-field">
+              <label>Ravg 1</label>
+              <input type="text" id="coat_s1_ravg1" value="0.5">
+            </div>
+            <div class="coat-field">
+              <label>Ravg 2</label>
+              <input type="text" id="coat_s1_ravg2" value="1">
+            </div>
+            <div class="coat-field">
+              <label>Angle 1</label>
+              <input type="text" id="coat_s1_angle1" value="0-22">
+            </div>
+            <div class="coat-field">
+              <label>Angle 2</label>
+              <input type="text" id="coat_s1_angle2" value="0-22">
+            </div>
+          </div>
+          <!-- S2 Column -->
+          <div class="coat-col">
+            <div class="coat-col-header">S2</div>
+            <div class="coat-field">
+              <label>Wave 1</label>
+              <input type="text" id="coat_s2_wave1" value="420-680">
+            </div>
+            <div class="coat-field">
+              <label>Wave 2</label>
+              <input type="text" id="coat_s2_wave2" value="850/940">
+            </div>
+            <div class="coat-field">
+              <label>Ravg 1</label>
+              <input type="text" id="coat_s2_ravg1" value="0.5">
+            </div>
+            <div class="coat-field">
+              <label>Ravg 2</label>
+              <input type="text" id="coat_s2_ravg2" value="1">
+            </div>
+            <div class="coat-field">
+              <label>Angle 1</label>
+              <input type="text" id="coat_s2_angle1" value="0-22">
+            </div>
+            <div class="coat-field">
+              <label>Angle 2</label>
+              <input type="text" id="coat_s2_angle2" value="0-22">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Card 3: 加工要求 ─── -->
+      <div class="param-card">
+        <div class="card-header">
+          <div class="card-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          </div>
+          <span class="card-title">加工要求</span>
+        </div>
+        <!-- 中心偏 C -->
+        <div class="param-row">
+          <label>单页 C</label>
+          <input type="text" id="proc_c_single" value="60&#8243;">
+        </div>
+        <div class="param-row">
+          <label>胶合页 C</label>
+          <input type="text" id="proc_c_assembly" value="60&#8243;">
+        </div>
+        <div class="param-row">
+          <label>Surface defect B</label>
+          <input type="text" id="proc_b" value="60/40">
+        </div>
+        <div class="param-row">
+          <label>Signature</label>
+          <input type="text" id="signature" value="l.y.h">
+        </div>
+        <div class="param-row">
+          <label>玻璃品级</label>
+          <select id="proc_ranking">
+            <option value="01">01</option>
+            <option value="00 ND±0.0003%  VD±0.3%">00 ND±0.0003%  VD±0.3%</option>
+          </select>
+        </div>
+
+        <div class="card-divider"></div>
+
+        <!-- N (折射率) -->
+        <div class="param-row">
+          <label>N
+            <span class="tooltip-trigger" title="自动: MD≤15→1.5, 15~30→2, 30~80→3, 80~130→4, 130~180→6, >180→8" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </label>
+          <select id="N_mode" style="flex:1;">
+            <option value="auto">自动计算</option>
+            <option value="manual">手动输入</option>
+          </select>
+        </div>
+        <div class="param-row" id="n-manual-row" style="display:none;">
+          <label>N 值</label>
+          <input type="number" step="0.1" min="1.0" id="N_manual" value="1.5">
+        </div>
+        <div class="param-row">
+          <label>ΔN</label>
+          <input type="text" id="DN" value="0.3">
+        </div>
+
+        <div class="card-divider"></div>
+
+        <!-- CA (净口径) -->
+        <div class="param-row">
+          <label>CA 模式
+            <span class="tooltip-trigger" title="CA = floor(系数 × AD, 一位小数)，例如 AD=92, 系数=0.98 → CA=90.1" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </label>
+          <select id="CA_mode" style="flex:1;">
+            <option value="auto">自动计算</option>
+            <option value="manual">手动输入</option>
+          </select>
+        </div>
+        <div class="param-row" id="ca-ratio-row">
+          <label>CA 系数</label>
+          <input type="number" step="0.01" min="0.5" max="1.0" id="ca_ratio" value="0.98">
+        </div>
+        <div class="param-row ca-manual-row" id="ca1-manual-row" style="display:none;">
+          <label>CA1 (左净口径)</label>
+          <input type="number" step="0.01" id="CA1" value="13.00">
+        </div>
+        <div class="param-row ca-manual-row" id="ca2-manual-row" style="display:none;">
+          <label>CA2 (右净口径)</label>
+          <input type="number" step="0.01" id="CA2" value="13.00">
+        </div>
+
+        <div class="card-divider"></div>
+
+        <!-- 倒角设置 -->
+        <div class="param-row">
+          <label>倒角模式
+            <span class="tooltip-trigger" title="自动: D≤30→0.1, 30~80→0.2, >80→0.3; 双凸/双凹且||R1|-|R2||/min≤70%→左0.1右0.3" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </label>
+          <select id="chamfer_mode">
+            <option value="auto">自动计算</option>
+            <option value="manual">手动输入</option>
+          </select>
+        </div>
+        <div class="param-row" id="draw-chamfer-left-row" style="display:none;">
+          <label>左侧倒角 (mm)</label>
+          <input type="number" step="0.05" id="chamfer_left" value="0.1">
+        </div>
+        <div class="param-row" id="draw-chamfer-right-row" style="display:none;">
+          <label>右侧倒角 (mm)</label>
+          <input type="number" step="0.05" id="chamfer_right" value="0.3">
+        </div>
+
+        <div class="card-divider"></div>
+
+        <!-- 公差设置 -->
+        <div class="param-row">
+          <label>厚度公差 (±mm)</label>
+          <input type="number" step="0.001" id="t_tol" value="0.02">
+        </div>
+        <div class="param-row">
+          <label>矢高公差 (±mm)</label>
+          <input type="number" step="0.001" id="sag_tol" value="0.02">
+        </div>
+
+        <h5 style="font-size:11px; color:var(--text-tertiary); margin:8px 0 4px 0;">直径定位公差</h5>
+        <div class="param-row">
+          <label>上偏差 (mm)</label>
+          <input type="number" step="0.001" id="dia_tol_pos_upper" value="0.010">
+        </div>
+        <div class="param-row">
+          <label>下偏差 (mm)</label>
+          <input type="number" step="0.001" id="dia_tol_pos_lower" value="0.025">
+        </div>
+
+        <h5 style="font-size:11px; color:var(--text-tertiary); margin:8px 0 4px 0;">直径非定位公差</h5>
+        <div class="param-row">
+          <label>上偏差 (mm)</label>
+          <input type="number" step="0.001" id="dia_tol_nonpos_upper" value="0.05">
+        </div>
+        <div class="param-row">
+          <label>下偏差 (mm)</label>
+          <input type="number" step="0.001" id="dia_tol_nonpos_lower" value="0.10">
+        </div>
+
+        <div class="param-row" id="cemented-ref-row" style="display:none;">
+          <label>胶合定位镜片</label>
+          <select id="cemented_ref_lens">
+            <option value="1">第 1 片</option>
+            <option value="2" selected>第 2 片</option>
+            <option value="3">第 3 片</option>
+          </select>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- Right: Preview -->
+  <main class="preview-area">
+    <div class="preview-container" id="preview-container">
+      <div class="preview-loading" id="preview-loading">正在生成预览...</div>
+      <img id="preview-img" src="" alt="Lens Preview" style="display:none; max-width:100%; max-height:100%;">
+      <!-- Editable field overlays -->
+      <div class="preview-overlays" id="preview-overlays"></div>
+      <div class="preview-error" id="preview-error" style="display:none;"></div>
+    </div>
+    <!-- Page Tabs + Overlay Toggle -->
+    <div class="preview-toolbar">
+      <div class="page-tabs" id="page-tabs" style="display:none;"></div>
+      <div class="toolbar-spacer"></div>
+      <button class="btn-overlay-toggle" id="btn-overlay-toggle" title="显示/隐藏输入框">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>显示输入框</span>
+      </button>
+    </div>
+    <div class="preview-status" id="preview-status"></div>
+  </main>
+
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="export-modal" style="display:none;">
+  <div class="modal">
+    <h3>导出 PDF</h3>
+    <p class="modal-desc">选择保存路径并输入文件名</p>
+    <div class="modal-input-group">
+      <input type="text" id="export-filename" class="modal-input" placeholder="lens_T4.70_R1-35.0_R230.0.pdf">
+    </div>
+    <div class="modal-path-row">
+      <input type="text" id="export-path" class="modal-input" placeholder="保存路径" readonly style="flex:1; background:#f0f0f0;">
+      <button class="btn-secondary" id="btn-choose-path" style="margin-left:8px; white-space:nowrap;">选择路径</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-cancel-export">取消</button>
+      <button class="btn-primary" id="btn-confirm-export">导出</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/draw.js') }}"></script>
+<script>
+// Resize and center workspace window atomically
+(function() {
+  function tryResize(retries) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.resizeAndCenter) {
+      window.pywebview.api.resizeAndCenter(1400, 920);
+      return;
+    }
+    if (retries > 0) setTimeout(() => tryResize(retries - 1), 100);
+  }
+  tryResize(50);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>参数设置 - Lens Drawing</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="workspace">
+
+<!-- Top Bar -->
+<header class="topbar">
+  <a href="/" class="back-btn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    <span>返回</span>
+  </a>
+  <h2 class="page-title">参数设置</h2>
+  <div class="topbar-actions">
+    <button class="btn-icon" id="btn-reload" title="重新加载">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- Settings Content -->
+<div class="settings-layout">
+  <div class="settings-container">
+
+    <!-- ── Card 1: 加工要求默认值 ── -->
+    <div class="settings-section">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        加工要求默认值
+      </h3>
+      <div class="settings-row"><label>单页 C</label><input type="text" id="proc_c_single" value="60″"></div>
+      <div class="settings-row"><label>胶合页 C</label><input type="text" id="proc_c_assembly" value="60″"></div>
+      <div class="settings-row"><label>表面瑕疵 B</label><input type="text" id="proc_surface_defect" value="60/40"></div>
+      <div class="settings-row">
+        <label>N 默认模式
+          <span class="tooltip-trigger" title="自动: MD≤15→1.5, 15~30→2, 30~80→3, 80~130→4, 130~180→6, >180→8" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+        </label>
+        <select id="proc_N_mode">
+          <option value="auto">自动计算</option>
+          <option value="manual">手动输入</option>
+        </select>
+      </div>
+      <div class="settings-row"><label>N 手动默认值</label><input type="number" step="0.1" min="1.0" id="proc_N_manual" value="1.5"></div>
+      <div class="settings-row"><label>ΔN 默认值</label><input type="text" id="proc_DN" value="0.3"></div>
+      <div class="settings-row"><label>署名</label><input type="text" id="proc_signature" value="l.y.h"></div>
+      <div class="settings-row"><label>玻璃厂商</label><input type="text" id="proc_vendor" value="CDGM"></div>
+      <div class="settings-row">
+        <label>玻璃品级</label>
+        <select id="proc_ranking">
+          <option value="01">01</option>
+          <option value="00 ND±0.0003%  VD±0.3%">00 ND±0.0003%  VD±0.3%</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>CA 自动计算系数
+          <span class="tooltip-trigger" title="CA = floor(系数 × AD, 一位小数)，例如 AD=92, 系数=0.98 → CA=90.1" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+        </label>
+        <input type="number" step="0.01" min="0.5" max="1.0" id="ca_ratio" value="0.98">
+      </div>
+
+      <!-- 倒角设置（合并到加工要求） -->
+      <h4 style="font-size:12px; color:var(--text-secondary); margin:16px 0 8px;">倒角设置</h4>
+      <div class="settings-row">
+        <label>倒角模式
+          <span class="tooltip-trigger" title="自动: D≤30→0.1, 30~80→0.2, >80→0.3; 双凸/双凹且||R1|-|R2||/min≤70%→左0.1右0.3" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+        </label>
+        <select id="chamfer_mode">
+          <option value="auto">自动计算</option>
+          <option value="manual">手动输入</option>
+        </select>
+      </div>
+      <div class="settings-row" id="settings-chamfer-left-row"><label>左侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_left" value="0.1"></div>
+      <div class="settings-row" id="settings-chamfer-right-row"><label>右侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_right" value="0.3"></div>
+    </div>
+
+    <!-- ── Card 2: 公差设置（上移） ── -->
+    <div class="settings-section">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        公差设置
+      </h3>
+
+      <h4 style="font-size:12px; color:var(--text-secondary); margin:4px 0 8px;">直径定位公差</h4>
+      <div class="settings-row"><label>上偏差 (mm)</label><input type="number" step="0.001" id="dia_tol_pos_upper" value="0.010"></div>
+      <div class="settings-row"><label>下偏差 (mm)</label><input type="number" step="0.001" id="dia_tol_pos_lower" value="0.025"></div>
+
+      <h4 style="font-size:12px; color:var(--text-secondary); margin:12px 0 8px;">直径非定位公差</h4>
+      <div class="settings-row"><label>上偏差 (mm)</label><input type="number" step="0.001" id="dia_tol_nonpos_upper" value="0.05"></div>
+      <div class="settings-row"><label>下偏差 (mm)</label><input type="number" step="0.001" id="dia_tol_nonpos_lower" value="0.10"></div>
+
+      <h4 style="font-size:12px; color:var(--text-secondary); margin:12px 0 8px;">胶合镜片定位基准</h4>
+      <div class="settings-row">
+        <label>定位镜片
+          <span class="tooltip-trigger" title="定位镜片采用定位公差，其余镜片采用非定位公差" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="#9aa0a6" stroke="#9aa0a6" stroke-width="0.5"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg>
+          </span>
+        </label>
+        <select id="cemented_ref_lens">
+          <option value="1">第 1 片</option>
+          <option value="2" selected>第 2 片</option>
+          <option value="3">第 3 片</option>
+        </select>
+      </div>
+
+      <h4 style="font-size:12px; color:var(--text-secondary); margin:4px 0 8px;">通用公差</h4>
+      <div class="settings-row"><label>厚度公差 (±mm)</label><input type="number" step="0.001" id="t_tol" value="0.02"></div>
+      <div class="settings-row"><label>矢高公差 (±mm)</label><input type="number" step="0.001" id="sag_tol" value="0.02"></div>
+    </div>
+
+    <!-- ── Card 3: 镀膜默认参数 ── -->
+    <div class="settings-section">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+        镀膜默认参数
+      </h3>
+      <!-- 预设方案 -->
+      <div class="settings-row" style="margin-bottom:16px;">
+        <label>预设方案</label>
+        <select id="coat_preset">
+          <option value="Custom">自定义</option>
+          <option value="SQ-A1">SQ-A1</option>
+          <option value="SQ-A3">SQ-A3</option>
+          <option value="SQ-A5">SQ-A5</option>
+        </select>
+      </div>
+      <!-- 统一网格: 标签 | S1 | S2 -->
+      <div class="coat-unified-grid">
+        <!-- Header row -->
+        <span></span>
+        <span class="coat-col-hdr">S1</span>
+        <span class="coat-col-hdr">S2</span>
+        <!-- 波段1 -->
+        <span class="coat-row-label">波段1 (nm)</span>
+        <input type="text" id="coat_s1_wave1" value="420-680">
+        <input type="text" id="coat_s2_wave1" value="420-680">
+        <!-- 波段2 -->
+        <span class="coat-row-label">波段2 (nm)</span>
+        <input type="text" id="coat_s1_wave2" value="850/940">
+        <input type="text" id="coat_s2_wave2" value="850/940">
+        <!-- 反射率1 -->
+        <span class="coat-row-label">反射率1 (%)</span>
+        <input type="text" id="coat_s1_ravg1" value="0.5">
+        <input type="text" id="coat_s2_ravg1" value="0.5">
+        <!-- 反射率2 -->
+        <span class="coat-row-label">反射率2 (%)</span>
+        <input type="text" id="coat_s1_ravg2" value="1">
+        <input type="text" id="coat_s2_ravg2" value="1">
+        <!-- 角度1 -->
+        <span class="coat-row-label">角度1 (°)</span>
+        <input type="text" id="coat_s1_angle1" value="0-22">
+        <input type="text" id="coat_s2_angle1" value="0-22">
+        <!-- 角度2 -->
+        <span class="coat-row-label">角度2 (°)</span>
+        <input type="text" id="coat_s1_angle2" value="0-22">
+        <input type="text" id="coat_s2_angle2" value="0-22">
+      </div>
+    </div>
+
+    <!-- ── Card 4: 绘图默认参数 ── -->
+    <div class="settings-section collapsible collapsed">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        绘图默认参数
+      </h3>
+      <div class="collapsible-body" style="max-height:200px;">
+      <div class="settings-row">
+        <label>字体大小 (pt)</label>
+        <input type="number" step="0.5" id="font_size" value="9">
+      </div>
+      <div class="settings-row">
+        <label>箭头缩放系数</label>
+        <input type="number" step="0.1" id="arrow_scale" value="1.0">
+      </div>
+      <div class="settings-row">
+        <label>尺寸公差 J 倍率
+          <span class="tooltip-trigger" title="标注尺寸 = 公差值 × J 倍率，用于控制标注文本与图形的比例关系" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+        </label>
+        <input type="number" step="0.01" id="J_multiplier" value="0.10">
+      </div>
+      </div>
+    </div>
+
+    <!-- ── Card 5: 标注偏移 (J) ── -->
+    <div class="settings-section collapsible collapsed">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#165dff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z"/></svg>
+        标注偏移 (J)
+      </h3>
+      <div class="collapsible-body" style="max-height:380px;">
+      <div class="settings-row"><label>中心厚度 CT</label><input type="number" step="0.5" id="ct_offset_J" value="10"></div>
+      <div class="settings-row"><label>边缘厚度 ET</label><input type="number" step="0.5" id="et_offset_J" value="8"></div>
+      <div class="settings-row"><label>矢高 Sag</label><input type="number" step="0.5" id="sag_offset_J" value="8"></div>
+      <div class="settings-row"><label>口径 DIA</label><input type="number" step="0.5" id="dia_offset_J" value="8"></div>
+      <div class="settings-row"><label>有效口径 AD</label><input type="number" step="0.5" id="ad_offset_J" value="6"></div>
+      <div class="settings-row"><label>曲率半径 R</label><input type="number" step="0.1" id="r_offset_J" value="5.5"></div>
+      <div class="settings-row"><label>喷边间隙</label><input type="number" step="0.05" id="spray_gap_J" value="0.2"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="settings-actions">
+      <button class="btn-secondary" id="btn-reset-settings">恢复默认</button>
+      <button class="btn-primary" id="btn-save-settings">保存设置</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  const fields = [
+    'font_size','arrow_scale','J_multiplier',
+    'ct_offset_J','et_offset_J','sag_offset_J','dia_offset_J','ad_offset_J','r_offset_J','spray_gap_J',
+    't_tol','sag_tol',
+    'dia_tol_pos_upper','dia_tol_pos_lower','dia_tol_nonpos_upper','dia_tol_nonpos_lower','cemented_ref_lens',
+    'chamfer_mode','chamfer_left','chamfer_right',
+    'proc_c_single','proc_c_assembly','proc_surface_defect','proc_N_mode','proc_N_manual','proc_DN','proc_signature','proc_vendor','proc_ranking',
+    'ca_ratio',
+    'coat_preset',
+    'coat_s1_wave1','coat_s1_wave2','coat_s2_wave1','coat_s2_wave2',
+    'coat_s1_ravg1','coat_s1_ravg2','coat_s2_ravg1','coat_s2_ravg2',
+    'coat_s1_angle1','coat_s1_angle2','coat_s2_angle1','coat_s2_angle2'
+  ];
+
+  function showToast(message, type = 'info') {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 350); }, 2500);
+  }
+
+  async function loadSettings() {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      populate(data);
+      updateChamferVisibility();
+      showToast('设置已加载');
+    } catch (err) {
+      showToast('加载设置失败', 'error');
+    }
+  }
+
+  function populate(data) {
+    fields.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && data[id] !== undefined) {
+        el.value = data[id];
+      }
+    });
+  }
+
+  function collect() {
+    const updates = {};
+    fields.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      let v = el.value;
+      if (el.type === 'number') v = parseFloat(v);
+      updates[id] = v;
+    });
+    return updates;
+  }
+
+  async function saveSettings() {
+    const updates = collect();
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('设置已保存', 'success');
+      } else {
+        showToast('保存失败: ' + data.error, 'error');
+      }
+    } catch (err) {
+      showToast('保存失败: ' + err.message, 'error');
+    }
+  }
+
+  function resetDefaults() {
+    const defaults = {
+      font_size: 9, arrow_scale: 1.0, J_multiplier: 0.10,
+      ct_offset_J: 10, et_offset_J: 8, sag_offset_J: 8, dia_offset_J: 8, ad_offset_J: 6, r_offset_J: 5.5, spray_gap_J: 0.2,
+      t_tol: 0.02, sag_tol: 0.02,
+      dia_tol_pos_upper: 0.010, dia_tol_pos_lower: 0.025,
+      dia_tol_nonpos_upper: 0.05, dia_tol_nonpos_lower: 0.10,
+      cemented_ref_lens: '2',
+      chamfer_mode: 'auto', chamfer_left: 0.1, chamfer_right: 0.3,
+      proc_c_single: '60″', proc_c_assembly: '60″', proc_surface_defect: '60/40', proc_N_mode: 'auto', proc_N_manual: '1.5', proc_DN: '0.3', proc_signature: 'l.y.h', proc_vendor: 'CDGM', proc_ranking: '01',
+      ca_ratio: 0.98,
+      coat_preset: 'SQ-A1',
+      coat_s1_wave1: '420-680', coat_s1_wave2: '850/940', coat_s2_wave1: '420-680', coat_s2_wave2: '850/940',
+      coat_s1_ravg1: '0.5', coat_s1_ravg2: '1', coat_s2_ravg1: '0.5', coat_s2_ravg2: '1',
+      coat_s1_angle1: '0-22', coat_s1_angle2: '0-22', coat_s2_angle1: '0-22', coat_s2_angle2: '0-22'
+    };
+    populate(defaults);
+    updateChamferVisibility();
+    showToast('已恢复默认值，请保存');
+  }
+
+  /* ── 倒角手动输入条件显示 ── */
+  function updateChamferVisibility() {
+    const mode = document.getElementById('chamfer_mode');
+    const isManual = mode && mode.value === 'manual';
+    const leftRow = document.getElementById('settings-chamfer-left-row');
+    const rightRow = document.getElementById('settings-chamfer-right-row');
+    if (leftRow) leftRow.style.display = isManual ? 'flex' : 'none';
+    if (rightRow) rightRow.style.display = isManual ? 'flex' : 'none';
+  }
+
+  document.getElementById('chamfer_mode').addEventListener('change', updateChamferVisibility);
+
+  /* ── Collapsible sections toggle ── */
+  document.querySelectorAll('.settings-section.collapsible').forEach(section => {
+    const h3 = section.querySelector('h3');
+    if (h3) {
+      h3.addEventListener('click', () => {
+        section.classList.toggle('collapsed');
+        // Update max-height for smooth animation
+        const body = section.querySelector('.collapsible-body');
+        if (body && !section.classList.contains('collapsed')) {
+          body.style.maxHeight = body.scrollHeight + 'px';
+        }
+      });
+    }
+  });
+
+  document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+  document.getElementById('btn-reset-settings').addEventListener('click', resetDefaults);
+  document.getElementById('btn-reload').addEventListener('click', loadSettings);
+
+  // Load on init
+  loadSettings();
+})();
+</script>
+<script>
+// Resize and center workspace window atomically
+(function() {
+  function tryResize(retries) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.resizeAndCenter) {
+      window.pywebview.api.resizeAndCenter(1400, 920);
+      return;
+    }
+    if (retries > 0) setTimeout(() => tryResize(retries - 1), 100);
+  }
+  tryResize(50);
+})();
+</script>
+</body>
+</html>

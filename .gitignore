@@ -1,0 +1,47 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# Build output
+build/
+dist/
+
+# PyInstaller
+*.spec
+
+# Installer binaries (large files)
+installer_deps/
+installer_output/
+
+# Logs
+*.log
+build_log.txt
+build_out.txt
+log3.txt
+run_log.txt
+test_log.txt
+test_log2.txt
+
+# Test files
+test_*.py
+test_*.pdf
+test_*.png
+
+# Font cache
+fontlist-*.json
+
+# App settings (local config)
+app_settings.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# WorkBuddy internal
+.workbuddy/
