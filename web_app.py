@@ -30,6 +30,7 @@ from main import (
     _ann_chamfer_right, _ann_spraying, _ann_optical_axis,
     draw_cemented_assembly, _build_assembly_page_figure, export_cemented_pdf,
     build_cemented_preview_figures, get_preview_field_metadata,
+    extract_field_positions,
 )
 from geometry import build_profile
 from config import DEFAULTS, validate, auto_chamfer, auto_CA, auto_N, auto_chamfer_by_dia
@@ -207,8 +208,8 @@ def _params_from_request():
         "proc_ranking": data.get("proc_ranking", _current_settings.get("proc_ranking", "01")),
         # Chamfer overrides from draw module
         "chamfer_mode": data.get("chamfer_mode", _current_settings.get("chamfer_mode", "auto")),
-        "chamfer_left": float(data.get("chamfer_left", _current_settings.get("chamfer_left", 0.1)) or 0.1),
-        "chamfer_right": float(data.get("chamfer_right", _current_settings.get("chamfer_right", 0.3)) or 0.3),
+        "chamfer_left": float(data.get("chamfer_left", _current_settings.get("chamfer_left", 0.2)) or 0.2),
+        "chamfer_right": float(data.get("chamfer_right", _current_settings.get("chamfer_right", 0.4)) or 0.4),
         # Tolerance overrides from draw module
         "t_tol": float(data.get("t_tol", _current_settings.get("t_tol", 0.02)) or 0.02),
         "sag_tol": float(data.get("sag_tol", _current_settings.get("sag_tol", 0.02)) or 0.02),
@@ -249,8 +250,8 @@ def _build_proc_params(p):
         "proc_ranking": p.get("proc_ranking", "01"),
         # Chamfer
         "chamfer_mode": p.get("chamfer_mode", "auto"),
-        "chamfer_left": p.get("chamfer_left", 0.1),
-        "chamfer_right": p.get("chamfer_right", 0.3),
+        "chamfer_left": p.get("chamfer_left", 0.2),
+        "chamfer_right": p.get("chamfer_right", 0.4),
         # Tolerances
         "t_tol": p.get("t_tol", 0.02),
         "sag_tol": p.get("sag_tol", 0.02),
@@ -271,34 +272,53 @@ IMG_W = int(11.69 * PREVIEW_DPI)   # ≈ 1169 px
 IMG_H = int(8.27 * PREVIEW_DPI)    # ≈ 827 px
 
 def _fig_to_preview_response(fig, is_cemented_single=False, field_values=None):
-    """将 Figure 渲染为 PNG + 可编辑字段坐标+值，返回 API 响应 dict"""
+    """将 Figure 渲染为 PNG + 用 BBox 提取的精确字段坐标，返回 API 响应 dict"""
     if field_values is None:
         field_values = {}
+
+    # 1. 提取精确 BBox 位置（在 PREVIEW_DPI 下渲染）
+    actual_positions = extract_field_positions(fig, PREVIEW_DPI)
+
+    # 2. 渲染 PNG（DPI 已恢复为原值，savefig 会再次渲染）
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=PREVIEW_DPI, pad_inches=0)
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode("utf-8")
 
-    # 读取实际 PNG 尺寸用于前端精确校正
+    # 3. 读取实际 PNG 尺寸
     buf.seek(0)
     from PIL import Image
     pil_img = Image.open(buf)
     img_w, img_h = pil_img.size
 
-    # 计算字段坐标（mm → 百分比）
+    # 4. 合并：用实际 BBox 位置 + field_values
     fields_raw = get_preview_field_metadata(is_cemented_single=is_cemented_single)
     fields = []
     for f in fields_raw:
-        fields.append({
-            "id": f["id"],
-            "label": f["label"],
-            "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
-            "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
-            "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
-            "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
-            "source": f["source"],
-            "value": field_values.get(f["id"], ""),
-        })
+        if f["id"] in actual_positions:
+            pos = actual_positions[f["id"]]
+            fields.append({
+                "id": f["id"],
+                "label": f["label"],
+                "left_pct": pos["left_pct"],
+                "top_pct": pos["top_pct"],
+                "w_pct": pos["w_pct"],
+                "h_pct": pos["h_pct"],
+                "source": f["source"],
+                "value": field_values.get(f["id"], ""),
+            })
+        else:
+            # fallback: 硬编码坐标
+            fields.append({
+                "id": f["id"],
+                "label": f["label"],
+                "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
+                "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
+                "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
+                "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
+                "source": f["source"],
+                "value": field_values.get(f["id"], ""),
+            })
     return {"image": img_b64, "fields": fields, "img_w": img_w, "img_h": img_h}
 
 # ══════════════════════════════════════════════════════════════════════
@@ -341,8 +361,8 @@ def api_preview():
             return jsonify({"success": False, "error": "; ".join(errors)})
 
         cL, cR = auto_chamfer(MD, R1, R2) if p.get("chamfer_mode", _current_settings.get("chamfer_mode", "auto")) == "auto" else (
-            p.get("chamfer_left", _current_settings.get("chamfer_left", 0.1)),
-            p.get("chamfer_right", _current_settings.get("chamfer_right", 0.3)),
+            p.get("chamfer_left", _current_settings.get("chamfer_left", 0.2)),
+            p.get("chamfer_right", _current_settings.get("chamfer_right", 0.4)),
         )
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
@@ -426,8 +446,8 @@ def api_export():
             return jsonify({"success": False, "error": "; ".join(errors)})
 
         cL, cR = auto_chamfer(MD, R1, R2) if p.get("chamfer_mode", _current_settings.get("chamfer_mode", "auto")) == "auto" else (
-            p.get("chamfer_left", _current_settings.get("chamfer_left", 0.1)),
-            p.get("chamfer_right", _current_settings.get("chamfer_right", 0.3)),
+            p.get("chamfer_left", _current_settings.get("chamfer_left", 0.2)),
+            p.get("chamfer_right", _current_settings.get("chamfer_right", 0.4)),
         )
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
@@ -517,6 +537,7 @@ def _cemented_augmented_settings(data):
         "dia_tol_nonpos_upper": "dia_tol_nonpos_upper",
         "dia_tol_nonpos_lower": "dia_tol_nonpos_lower",
         "cemented_ref_lens": "cemented_ref_lens",
+        "coat_preset": "coat_preset",
     }
     for draw_key, settings_key in mapping.items():
         if draw_key in data:
@@ -573,8 +594,8 @@ def api_preview_cemented():
                 if _chamfer_mode == "auto":
                     _cL = _cR = auto_chamfer_by_dia(lens.MD)
                 else:
-                    _cL = local_settings.get("chamfer_left", 0.1)
-                    _cR = local_settings.get("chamfer_right", 0.3)
+                    _cL = local_settings.get("chamfer_left", 0.2)
+                    _cR = local_settings.get("chamfer_right", 0.4)
                 field_values = {
                     "vendor": local_settings.get("proc_vendor", "CDGM"),
                     "ranking": str(local_settings.get("proc_ranking", "01")),
@@ -587,18 +608,32 @@ def api_preview_cemented():
                     "b_val": str(local_settings.get("proc_surface_defect", "60/40")),
                     "signature": str(local_settings.get("proc_signature", "l.y.h")),
                 }
+                # 用 BBox 提取精确位置
+                actual_positions = extract_field_positions(fig, PREVIEW_DPI)
                 raw = get_preview_field_metadata(is_cemented_single=True)
                 page_fields = []
                 for f in raw:
-                    page_fields.append({
-                        "id": f["id"], "label": f["label"],
-                        "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
-                        "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
-                        "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
-                        "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
-                        "source": f["source"],
-                        "value": field_values.get(f["id"], ""),
-                    })
+                    if f["id"] in actual_positions:
+                        pos = actual_positions[f["id"]]
+                        page_fields.append({
+                            "id": f["id"], "label": f["label"],
+                            "left_pct": pos["left_pct"],
+                            "top_pct": pos["top_pct"],
+                            "w_pct": pos["w_pct"],
+                            "h_pct": pos["h_pct"],
+                            "source": f["source"],
+                            "value": field_values.get(f["id"], ""),
+                        })
+                    else:
+                        page_fields.append({
+                            "id": f["id"], "label": f["label"],
+                            "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
+                            "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
+                            "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
+                            "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
+                            "source": f["source"],
+                            "value": field_values.get(f["id"], ""),
+                        })
                 fields_by_page.append(page_fields)
             else:
                 fields_by_page.append([])

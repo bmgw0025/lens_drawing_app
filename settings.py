@@ -18,8 +18,8 @@ DEFAULT_SETTINGS = {
     "ad_offset_J": 6.0,
     "spray_gap_J": 0.2,
     "chamfer_mode": "auto",
-    "chamfer_left": 0.1,
-    "chamfer_right": 0.3,
+    "chamfer_left": 0.2,
+    "chamfer_right": 0.4,
     "t_tol": 0.02,
     "sag_tol": 0.02,
     # ── 直径公差（新键：定位/非定位分离；旧键保留向后兼容）──

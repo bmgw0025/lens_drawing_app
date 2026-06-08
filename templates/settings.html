@@ -66,15 +66,15 @@
       <h4 style="font-size:12px; color:var(--text-secondary); margin:16px 0 8px;">倒角设置</h4>
       <div class="settings-row">
         <label>倒角模式
-          <span class="tooltip-trigger" title="自动: D≤30→0.1, 30~80→0.2, >80→0.3; 双凸/双凹且||R1|-|R2||/min≤70%→左0.1右0.3" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+          <span class="tooltip-trigger" title="自动: D≤30→0.2, 30~80→0.3, >80→0.4; 双凸/双凹且||R1|-|R2||/min≤70%→左0.2右0.4" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
         </label>
         <select id="chamfer_mode">
           <option value="auto">自动计算</option>
           <option value="manual">手动输入</option>
         </select>
       </div>
-      <div class="settings-row" id="settings-chamfer-left-row"><label>左侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_left" value="0.1"></div>
-      <div class="settings-row" id="settings-chamfer-right-row"><label>右侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_right" value="0.3"></div>
+      <div class="settings-row" id="settings-chamfer-left-row"><label>左侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_left" value="0.2"></div>
+      <div class="settings-row" id="settings-chamfer-right-row"><label>右侧倒角 (mm)</label><input type="number" step="0.05" id="chamfer_right" value="0.4"></div>
     </div>
 
     <!-- ── Card 2: 公差设置（上移） ── -->
@@ -297,7 +297,7 @@
       dia_tol_pos_upper: 0.010, dia_tol_pos_lower: 0.025,
       dia_tol_nonpos_upper: 0.05, dia_tol_nonpos_lower: 0.10,
       cemented_ref_lens: '2',
-      chamfer_mode: 'auto', chamfer_left: 0.1, chamfer_right: 0.3,
+      chamfer_mode: 'auto', chamfer_left: 0.2, chamfer_right: 0.4,
       proc_c_single: '60″', proc_c_assembly: '60″', proc_surface_defect: '60/40', proc_N_mode: 'auto', proc_N_manual: '1.5', proc_DN: '0.3', proc_signature: 'l.y.h', proc_vendor: 'CDGM', proc_ranking: '01',
       ca_ratio: 0.98,
       coat_preset: 'SQ-A1',

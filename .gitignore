@@ -45,3 +45,13 @@ Thumbs.db
 
 # WorkBuddy internal
 .workbuddy/
+
+# npm / PDF.js (not used)
+node_modules/
+package.json
+package-lock.json
+static/js/pdf.min.js
+static/js/pdf.worker.min.js
+static/js/pdf.worker.entry.js
+static/cmaps/
+static/standard_fonts/

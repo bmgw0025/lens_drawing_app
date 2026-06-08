@@ -729,8 +729,8 @@ async function openProcModal(tr) {
 
   const chMode = g('chamfer_mode','auto');
   setVal('proc_modal_ch_mode', chMode);
-  gs('proc_modal_ch_left','chamfer_left','0.1');
-  gs('proc_modal_ch_right','chamfer_right','0.3');
+  gs('proc_modal_ch_left','chamfer_left','0.2');
+  gs('proc_modal_ch_right','chamfer_right','0.4');
 
   const caMode = g('CA_mode','auto');  // Note: draw module uses CA_mode, settings has ca_ratio only
   setVal('proc_modal_ca_mode', caMode);

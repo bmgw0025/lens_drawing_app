@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Lens Drawing Tool v3.1"""
-import sys,os,math
+import sys,os,math,io
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import matplotlib
 matplotlib.use("Agg")
@@ -641,38 +641,48 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     fs = 7.5
     def _tx(dx, dy, text, bold=False, f=fs):
         w = "bold" if bold else "normal"
-        ax_page.text(tx_x+dx, tx_y+dy, text, ha="left", va="bottom", fontsize=f, color="black", fontweight=w)
-    def _tx_pair(dx, dy, label, value):
+        return ax_page.text(tx_x+dx, tx_y+dy, text, ha="left", va="bottom", fontsize=f, color="black", fontweight=w)
+    def _tx_pair(dx, dy, label, value, field_id=None):
         _tx(dx, dy, label, f=fs)
-        _tx(dx+42, dy, value, f=fs)
+        t = _tx(dx+42, dy, value, f=fs)
+        if field_id:
+            t._field_id = field_id
 
     if is_cemented_single:
         # 胶合单片页：无Spraying段，序号重编
         _tx(0, 0, "1.Material", bold=True)
-        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd)
-        _tx_pair(4, -line_h*2, "Ranking:", var_rnk)
+        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor")
+        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking")
         _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", "Molding")
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer")
         _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
-        _tx_pair(4, -line_h*9.5, "Clear Aperture", f"S1 φ{CA1:.2f}  S2 φ{CA2:.2f}")
+        _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
+        t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
+        t_ca1._field_id = "ca1"
+        t_ca2 = _tx(4+42+52, -line_h*9.5, f"S2 φ{CA2:.2f}", f=fs)
+        t_ca2._field_id = "ca2"
         _tx(0, -line_h*11, "4.The rest", bold=True)
         _tx(4, -line_h*12, "roughness", f=fs)
         tri_x, tri_y = tx_x+10, tx_y-line_h*14; tri_w = 3; tri_h = tri_w * 1.732
     else:
         # 独立单片页：完整5段
         _tx(0, 0, "1.Material", bold=True)
-        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd)
-        _tx_pair(4, -line_h*2, "Ranking:", var_rnk)
+        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor")
+        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking")
         _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", "Molding")
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer")
         _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
-        _tx_pair(4, -line_h*9.5, "Clear Aperture", f"S1 φ{CA1:.2f}  S2 φ{CA2:.2f}")
+        _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
+        t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
+        t_ca1._field_id = "ca1"
+        t_ca2 = _tx(4+42+52, -line_h*9.5, f"S2 φ{CA2:.2f}", f=fs)
+        t_ca2._field_id = "ca2"
         _tx(0, -line_h*11, "4.Spraying", bold=True)
         _tx_pair(4, -line_h*12, "Ink Brand&Model:", "GT-7II")
         _tx_pair(4, -line_h*13, "Ink Proportion:", "8: 1: 9(Paint: Curing agent: Diluent)")
@@ -779,43 +789,50 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         ax_page.text(x, sub_y, txt, ha="center", va="center", fontsize=6, color="black")
 
     # 数据行（从 rows_y[5] 往下到 rows_y[0]）
-    def _cell(row_idx, col_idx, text, ha="center", f=6.5):
+    def _cell(row_idx, col_idx, text, ha="center", f=6.5, field_id=None):
         x = (cum[col_idx] + cum[col_idx+1]) / 2
         y = rows_y[row_idx] + row_h/2 - 0.5
-        ax_page.text(x, y, text, ha=ha, va="center", fontsize=f, color="black")
+        t = ax_page.text(x, y, text, ha=ha, va="center", fontsize=f, color="black")
+        if field_id:
+            t._field_id = field_id
     def _cellL(row_idx, col_idx, text, f=6.5):
         x = cum[col_idx] + 1.5
         y = rows_y[row_idx] + row_h/2 - 0.5
         ax_page.text(x, y, text, ha="left", va="center", fontsize=f, color="black")
-    def _cell_merge(row_idx, col_idx, text, f=6.5):
+    def _cell_merge(row_idx, col_idx, text, f=6.5, field_id=None):
         """合并单元格文本：垂直居中于row_idx和row_idx+1两个行区域之间"""
         x = (cum[col_idx] + cum[col_idx+1]) / 2
         y = (rows_y[row_idx] + rows_y[row_idx+2]) / 2 - 0.5
-        ax_page.text(x, y, text, ha="center", va="center", fontsize=f, color="black", linespacing=0.85)
+        t = ax_page.text(x, y, text, ha="center", va="center", fontsize=f, color="black", linespacing=0.85)
+        if field_id:
+            t._field_id = field_id
 
     # Coating Preset 判断
-    coat_preset = settings.get("coat_preset", "Custom") if settings else "Custom"
+    coat_preset = (proc_params or {}).get("coat_preset", settings.get("coat_preset", "Custom") if settings else "Custom")
     has_outer_s1 = proc_params.get("has_outer_s1", True) if proc_params else True
     has_outer_s2 = proc_params.get("has_outer_s2", True) if proc_params else True
 
     # 若使用Preset，先画合并单元格覆盖内部小线（只合并Wavelength/Ravg/Angle，保留左侧Surface列）
+    # 无论是否有镀膜，都画合并单元格（保持视觉一致），仅在需要镀膜时填充文字
     if coat_preset != "Custom":
+        # S1
+        rx0, ry0 = cum[3], rows_y[2]
+        rx1, ry1 = cum[6], rows_y[4]
+        ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
+        ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
         if has_outer_s1:
-            rx0, ry0 = cum[3], rows_y[2]
-            rx1, ry1 = cum[6], rows_y[4]
-            ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
-            ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
             ax_page.text((rx0+rx1)/2, (ry0+ry1)/2, coat_preset, ha="center", va="center", fontsize=6.5, color="black", zorder=4)
+        # S2
+        rx0, ry0 = cum[3], rows_y[0]
+        rx1, ry1 = cum[6], rows_y[2]
+        ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
+        ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
         if has_outer_s2:
-            rx0, ry0 = cum[3], rows_y[0]
-            rx1, ry1 = cum[6], rows_y[2]
-            ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
-            ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
             ax_page.text((rx0+rx1)/2, (ry0+ry1)/2, coat_preset, ha="center", va="center", fontsize=6.5, color="black", zorder=4)
 
     # row3 (C) - S1第一组镀膜数据
     _cell(3, 0, "C", f=6.5)
-    _cell(3, 1, var_c, f=6.5)
+    _cell(3, 1, var_c, f=6.5, field_id="c_val")
     _cell_merge(2, 2, "S1")  # 合并S1单元格
     if coat_preset == "Custom" or not has_outer_s1:
         _cell(3, 3, w_s1_1)
@@ -823,21 +840,21 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         _cell(3, 5, a_s1_1)
     # Project/Signature/Date/Part No/Part Name/Version 的 Row3 和 Row2 合并
     _cell_merge(2, 6, "Drafting")
-    _cell_merge(2, 7, var_sig)
+    _cell_merge(2, 7, var_sig, field_id="signature")
     _cell_merge(2, 8, today)
     _cell_merge(2, 9, var_pno)
     _cell_merge(2,10, var_pn)
     _cell_merge(2,11, "1.0")
     # row2 (N) - S1第二组镀膜数据
     _cell(2, 0, "N", f=6.5)
-    _cell(2, 1, str(N_val), f=6.5)
+    _cell(2, 1, str(N_val), f=6.5, field_id="n_val")
     if coat_preset == "Custom" or not has_outer_s1:
         _cell(2, 3, w_s1_2)
         _cell(2, 4, r_s1_2)
         _cell(2, 5, a_s1_2)
     # row1 (ΔN) - S2第一组镀膜数据
     _cell(1, 0, "ΔN", f=6.5)
-    _cell(1, 1, str(s("DN", settings.get("proc_DN","0.3"))), f=6.5)
+    _cell(1, 1, str(s("DN", settings.get("proc_DN","0.3"))), f=6.5, field_id="dn_val")
     _cell_merge(0, 2, "S2")  # 合并S2单元格
     if coat_preset == "Custom" or not has_outer_s2:
         _cell(1, 3, w_s2_1)
@@ -847,7 +864,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     _cell(1,11, "Page No.")
     # row0 (B) - S2第二组镀膜数据
     _cell(0, 0, "B", f=6.5)
-    _cell(0, 1, var_b, f=6.5)
+    _cell(0, 1, var_b, f=6.5, field_id="b_val")
     if coat_preset == "Custom" or not has_outer_s2:
         _cell(0, 3, w_s2_2)
         _cell(0, 4, r_s2_2)
@@ -1388,7 +1405,7 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
     dia_tol_nonpos_lower=settings.get("dia_tol_nonpos_lower",0.10)
     cemented_ref=int(settings.get("cemented_ref_lens",2))
     chamfer_mode=settings.get("chamfer_mode","auto")
-    cL,cR=auto_chamfer(max_MD,lenses[0].R_left,lenses[-1].R_right) if chamfer_mode=="auto" else (settings.get("chamfer_left",0.1),settings.get("chamfer_right",0.3))
+    cL,cR=auto_chamfer(max_MD,lenses[0].R_left,lenses[-1].R_right) if chamfer_mode=="auto" else (settings.get("chamfer_left",0.2),settings.get("chamfer_right",0.4))
 
     fig=Figure(figsize=(11.69,8.27),dpi=300)  # 11.69*100=1169, 8.27*100=827, closest integer pixels to A4 ratio
     # ── 页面坐标 axes ──
@@ -1569,6 +1586,48 @@ def get_preview_field_metadata(is_cemented_single=False):
     return fields
 
 
+def extract_field_positions(fig, dpi=100):
+    """渲染 Figure 后提取带 _field_id 标签的文字元素的像素 BBox，返回百分比坐标。
+
+    返回: {field_id: {"left_pct", "top_pct", "w_pct", "h_pct"}}
+    百分比基于图片宽高，可直接用于前端覆盖层定位。
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg, RendererAgg
+
+    original_dpi = fig.dpi
+    fig.set_dpi(dpi)
+
+    fig_w = int(fig.get_figwidth() * dpi)
+    fig_h = int(fig.get_figheight() * dpi)
+
+    # 用 Agg 后端创建渲染器并强制渲染
+    canvas = FigureCanvasAgg(fig)
+    renderer = RendererAgg(fig_w, fig_h, dpi)
+    fig.draw(renderer)
+
+    PAD_PX = 3       # 每侧扩展 3 像素，增大点击区域
+    top_pad = PAD_PX + 1  # 顶部多 1px 补偿基线视觉偏移
+
+    positions = {}
+    for ax in fig.axes:
+        for text_obj in ax.texts:
+            fid = getattr(text_obj, '_field_id', None)
+            if fid is None:
+                continue
+            bbox = text_obj.get_window_extent(renderer=renderer)
+            # bbox 坐标是 display pixels（在指定 dpi 下）
+            # 添加 padding 扩展点击区域，顶部额外偏移补偿基线差异
+            positions[fid] = {
+                "left_pct": round((bbox.x0 - PAD_PX) / fig_w * 100, 2),
+                "top_pct": round((fig_h - bbox.y1 - top_pad) / fig_h * 100, 2),
+                "w_pct": round((bbox.x1 - bbox.x0 + PAD_PX * 2) / fig_w * 100, 2),
+                "h_pct": round((bbox.y1 - bbox.y0 + top_pad + PAD_PX) / fig_h * 100, 2),
+            }
+
+    fig.set_dpi(original_dpi)  # 恢复原 DPI
+    return positions
+
+
 def build_cemented_preview_figures(cemented_data, settings):
     """构建胶合镜片预览所需的所有 Figure：组装页 + 各单片页。
     返回: [(label, figure), ...]  其中 label 如 "整体"、"镜片1"、"镜片2"
@@ -1622,6 +1681,7 @@ def build_cemented_preview_figures(cemented_data, settings):
             "is_cemented_single": True,
             "has_outer_s1": has_outer_s1,
             "has_outer_s2": has_outer_s2,
+            "coat_preset": settings.get("coat_preset", "Custom"),
         }
 
         chamfer_mode = settings.get("chamfer_mode", "auto")
@@ -1629,8 +1689,8 @@ def build_cemented_preview_figures(cemented_data, settings):
             c_val = auto_chamfer_by_dia(lens.MD)
             cL, cR = c_val, c_val
         else:
-            cL = settings.get("chamfer_left", 0.1)
-            cR = settings.get("chamfer_right", 0.3)
+            cL = settings.get("chamfer_left", 0.2)
+            cR = settings.get("chamfer_right", 0.4)
 
         cemented_ref = int(settings.get("cemented_ref_lens", 2))
         ref_index = cemented_ref - 1
@@ -1715,6 +1775,7 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
                 "is_cemented_single": is_multi,   # 多片胶合时为True（隐藏喷漆线），独立单片时为False（绘制喷漆线）
                 "has_outer_s1": has_outer_s1,     # S1是否是最外侧（需要⨁）
                 "has_outer_s2": has_outer_s2,     # S2是否是最外侧（需要⨁）
+                "coat_preset": settings.get("coat_preset", "Custom"),
             }
             # 倒角计算：优先从 proc_params 读取，fallback 到 settings
             chamfer_mode = proc_params.get("chamfer_mode", settings.get("chamfer_mode","auto"))
@@ -1727,8 +1788,8 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
                     # 独立单片：按直径+曲率区分左右
                     cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
             else:
-                cL = proc_params.get("chamfer_left", settings.get("chamfer_left",0.1))
-                cR = proc_params.get("chamfer_right", settings.get("chamfer_right",0.3))
+                cL = proc_params.get("chamfer_left", settings.get("chamfer_left",0.2))
+                cR = proc_params.get("chamfer_right", settings.get("chamfer_right",0.4))
             # 胶合单片直径公差：定位镜片用定位公差，其余用非定位公差
             cemented_ref = int(settings.get("cemented_ref_lens", 2))  # 1-based
             ref_index = cemented_ref - 1  # 0-based
@@ -1757,3 +1818,93 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
             pdf.savefig(fig_s); plt.close(fig_s)
 
 
+# ── 胶合镜片 PDF 字节生成（供预览 API 使用）────────────────────────
+def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False):
+    """生成胶合镜片多页 PDF 字节，返回 bytes。
+    与 export_cemented_pdf() 逻辑相同，但输出到 BytesIO 而非文件。
+    """
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    buf = io.BytesIO()
+    lenses = cemented_data.lenses
+    is_multi = len(lenses) > 1
+    total_pages = (1 if is_multi else 0) + len(lenses)
+
+    with PdfPages(buf) as pdf:
+        if is_multi:
+            fig_asm = _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=total_pages, hide_partname=hide_partname)
+            fig_asm.set_dpi(72)  # PDF 坐标对齐：确保内容流缩放因子为 1.0
+            pdf.savefig(fig_asm); plt.close(fig_asm)
+
+        for i, lens in enumerate(lenses):
+            page_no = (2 if is_multi else 1) + i
+            is_first_lens = (i == 0)
+            is_last_lens = (i == len(lenses) - 1)
+            has_outer_s1 = is_first_lens
+            has_outer_s2 = is_last_lens
+
+            proc_params = {
+                "part_name": "" if is_multi else cemented_data.part_name,
+                "part_no": "" if is_multi else cemented_data.part_no,
+                "glass_name": lens.glass,
+                "proc_c_single": settings.get("proc_c_single", "60\u2033"),
+                "proc_b": settings.get("proc_surface_defect", "60/40"),
+                "N_mode": settings.get("proc_N_mode", "auto"),
+                "N_manual": settings.get("proc_N_manual", "1.5"),
+                "DN": settings.get("proc_DN", "0.3"),
+                "signature": settings.get("proc_signature", "l.y.h"),
+                "coat_s1_wave1": settings.get("coat_s1_wave1", "420-680") if has_outer_s1 else "",
+                "coat_s1_wave2": settings.get("coat_s1_wave2", "850/940") if has_outer_s1 else "",
+                "coat_s2_wave1": settings.get("coat_s2_wave1", "420-680") if has_outer_s2 else "",
+                "coat_s2_wave2": settings.get("coat_s2_wave2", "850/940") if has_outer_s2 else "",
+                "coat_s1_ravg1": settings.get("coat_s1_ravg1", "0.5") if has_outer_s1 else "",
+                "coat_s1_ravg2": settings.get("coat_s1_ravg2", "1") if has_outer_s1 else "",
+                "coat_s2_ravg1": settings.get("coat_s2_ravg1", "0.5") if has_outer_s2 else "",
+                "coat_s2_ravg2": settings.get("coat_s2_ravg2", "1") if has_outer_s2 else "",
+                "coat_s1_angle1": settings.get("coat_s1_angle1", "0-22") if has_outer_s1 else "",
+                "coat_s1_angle2": settings.get("coat_s1_angle2", "0-22") if has_outer_s1 else "",
+                "coat_s2_angle1": settings.get("coat_s2_angle1", "0-22") if has_outer_s2 else "",
+                "coat_s2_angle2": settings.get("coat_s2_angle2", "0-22") if has_outer_s2 else "",
+                "is_cemented_single": is_multi,
+                "has_outer_s1": has_outer_s1,
+                "has_outer_s2": has_outer_s2,
+            }
+            chamfer_mode = proc_params.get("chamfer_mode", settings.get("chamfer_mode", "auto"))
+            if chamfer_mode == "auto":
+                from config import auto_chamfer_by_dia
+                if is_multi:
+                    c_val = auto_chamfer_by_dia(lens.MD)
+                    cL, cR = c_val, c_val
+                else:
+                    cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
+            else:
+                cL = proc_params.get("chamfer_left", settings.get("chamfer_left", 0.2))
+                cR = proc_params.get("chamfer_right", settings.get("chamfer_right", 0.4))
+            cemented_ref = int(settings.get("cemented_ref_lens", 2))
+            ref_index = cemented_ref - 1
+            if is_multi and i != ref_index:
+                single_dia_upper = settings.get("dia_tol_nonpos_upper", 0.05)
+                single_dia_lower = settings.get("dia_tol_nonpos_lower", 0.10)
+            else:
+                single_dia_upper = settings.get("dia_tol_pos_upper", settings.get("dia_tol_upper", 0.010))
+                single_dia_lower = settings.get("dia_tol_pos_lower", settings.get("dia_tol_lower", 0.025))
+            fig_s = _build_single_page_figure(
+                lens.T, lens.R_left, lens.R_right, lens.MD, lens.AD_left, lens.AD_right,
+                settings.get("J_multiplier", 0.10),
+                settings.get("ct_offset_J", 3.0), settings.get("et_offset_J", 2.0),
+                settings.get("sag_offset_J", 3.0), settings.get("dia_offset_J", 3.0),
+                settings.get("ad_offset_J", 2.0), settings.get("spray_gap_J", 0.1),
+                cL, cR,
+                settings.get("t_tol", 0.02), settings.get("sag_tol", 0.02),
+                settings.get("font_size", 9), settings.get("arrow_scale", 1.0),
+                settings.get("r_offset_J", 0.8),
+                single_dia_upper, single_dia_lower,
+                proc_params, settings,
+                ca1=None, ca2=None,
+                page_no=page_no, total_pages=total_pages,
+                hide_partname=hide_partname,
+            )
+            fig_s.set_dpi(72)  # PDF 坐标对齐：确保内容流缩放因子为 1.0
+            pdf.savefig(fig_s); plt.close(fig_s)
+
+    return buf.getvalue()

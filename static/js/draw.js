@@ -79,10 +79,8 @@ function showPreviewImage(index) {
   els.previewImg.src = 'data:image/png;base64,' + img.b64;
   els.previewImg.style.display = 'block';
   els.previewStatus.textContent = img.label;
-  // 记录后端返回的精确尺寸
   currentImageBackendSize = (img.img_w && img.img_h) ? {w: img.img_w, h: img.img_h} : null;
   updatePageTabs();
-  // 渲染该页的字段覆盖层
   if (img.fields && img.fields.length > 0) {
     renderPreviewOverlays(img.fields);
   } else {
@@ -140,16 +138,13 @@ function alignOverlayContainer() {
   if (!img || !container || !parent || img.style.display === 'none') return;
   if (!img.naturalWidth || !img.naturalHeight) return;
 
-  // Use clientWidth/clientHeight to exclude border from calculation
   const parentW = parent.clientWidth;
   const parentH = parent.clientHeight;
-  // Prefer backend-reported size to eliminate browser decoder rounding discrepancies
   const imgW = (currentImageBackendSize && currentImageBackendSize.w) || img.naturalWidth;
   const imgH = (currentImageBackendSize && currentImageBackendSize.h) || img.naturalHeight;
   const imgAspect = imgW / imgH;
   const parentAspect = parentW / parentH;
 
-  // Calculate actual image display area (object-fit: contain)
   let displayW, displayH, offsetX, offsetY;
   if (imgAspect > parentAspect) {
     displayW = parentW;
@@ -163,7 +158,6 @@ function alignOverlayContainer() {
     offsetY = 0;
   }
 
-  // Position overlay to exactly match the image content area
   container.style.left = offsetX + 'px';
   container.style.top = offsetY + 'px';
   container.style.width = displayW + 'px';
@@ -447,7 +441,6 @@ async function refreshPreview() {
             lenses: buildLenses(params),
             part_name: params.part_name,
             part_no: params.part_no,
-            // Proc overrides for cemented assembly page
             proc_c_single: params.proc_c_single,
             proc_c_assembly: params.proc_c_assembly,
             proc_b: params.proc_b,
@@ -466,12 +459,13 @@ async function refreshPreview() {
             dia_tol_nonpos_upper: params.dia_tol_nonpos_upper,
             dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
             cemented_ref_lens: params.cemented_ref_lens,
+            coat_preset: params.coat_preset,
           }),
         });
       }
       data = await res.json();
 
-          if (data.success) {
+      if (data.success) {
         if (data.images && data.labels) {
           // Multi-image (cemented): assembly + individual pages
           setPreviewMulti(data.images, data.labels, data.fields_by_page, data.image_sizes);
@@ -537,6 +531,7 @@ async function doExport(fullpath) {
           dia_tol_nonpos_upper: params.dia_tol_nonpos_upper,
           dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
           cemented_ref_lens: params.cemented_ref_lens,
+          coat_preset: params.coat_preset,
         }),
       });
     }
@@ -611,7 +606,7 @@ function resetParams() {
     proc_c_single: '60″', proc_c_assembly: '60″',
     proc_b: '60/40', proc_ranking: '01', signature: 'l.y.h',
     N_mode: 'auto', N_manual: '1.5', DN: '0.3',
-    chamfer_mode: 'auto', chamfer_left: '0.1', chamfer_right: '0.3',
+    chamfer_mode: 'auto', chamfer_left: '0.2', chamfer_right: '0.4',
     t_tol: '0.02', sag_tol: '0.02',
     dia_tol_pos_upper: '0.010', dia_tol_pos_lower: '0.025',
     dia_tol_nonpos_upper: '0.05', dia_tol_nonpos_lower: '0.10',
