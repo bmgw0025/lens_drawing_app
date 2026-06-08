@@ -21,11 +21,11 @@ from batch_import import CementedLensData, SingleLensData
 class AnnotationSlot:
     """一个待布局的标注槽位"""
     __slots__ = ('direction', 'anchor_y_center', 'anchor_y_half_span',
-                 'priority', 'draw_fn', 'slot_id', 'assigned_offset')
+                 'priority', 'draw_fn', 'slot_id', 'assigned_offset', 'attach_x')
     _counter = 0
 
     def __init__(self, direction, anchor_y_center, anchor_y_half_span,
-                 priority, draw_fn, slot_id=None):
+                 priority, draw_fn, slot_id=None, attach_x=None):
         """
         direction: "left" | "right" | "top" | "bottom"
         anchor_y_center: 标注锚点在数据坐标系的 Y 中心
@@ -33,6 +33,7 @@ class AnnotationSlot:
         priority: 越小越靠近镜片（优先占据内侧 lane）
         draw_fn: callable(offset_J) -> None  实际绘制函数，接收计算后的 offset_J
         slot_id: 可选标识，不提供则自动编号
+        attach_x: 标注引线起点的 X 坐标（用于水平接近度检测，避免文字重叠）
         """
         self.direction = direction
         self.anchor_y_center = anchor_y_center
@@ -45,6 +46,7 @@ class AnnotationSlot:
             AnnotationSlot._counter += 1
             self.slot_id = AnnotationSlot._counter
         self.assigned_offset = None  # 布局后填入
+        self.attach_x = attach_x
 
 
 class SideAnnotationManager:
@@ -69,10 +71,10 @@ class SideAnnotationManager:
         self.slots = []  # List[AnnotationSlot]
 
     def register(self, direction, anchor_y_center, anchor_y_half_span,
-                 priority, draw_fn, slot_id=None):
+                 priority, draw_fn, slot_id=None, attach_x=None):
         """注册一个标注请求"""
         slot = AnnotationSlot(direction, anchor_y_center, anchor_y_half_span,
-                              priority, draw_fn, slot_id)
+                              priority, draw_fn, slot_id, attach_x)
         self.slots.append(slot)
         return slot
 
@@ -92,22 +94,36 @@ class SideAnnotationManager:
         for s in self.slots:
             by_dir.setdefault(s.direction, []).append(s)
 
+        # 文字宽度阈值（mm）：两个标注的引线起点 X 距离小于此值时，
+        # 认为文字可能重叠，需强制分配到不同 lane
+        min_x_sep = 2.5
+
         result = {}
         for direction, group in by_dir.items():
-            # 按 priority 升序（越小越优先靠近镜片）
-            group.sort(key=lambda s: s.priority)
+            # 排序：priority 升序（越小越内侧），同 priority 按 span 升序（小跨度在内侧）
+            group.sort(key=lambda s: (s.priority, s.anchor_y_half_span))
             assigned = []  # 已分配 offset 的 slot 列表
 
             for slot in group:
                 # 找出与当前 slot Y 方向重叠的已分配 slot
                 overlapping = [a for a in assigned if self._y_overlap(slot, a)]
 
-                if not overlapping:
-                    # 无重叠：使用基础偏移
+                # 水平接近度检测：即使 Y 不重叠，如果两个标注的引线起点 X 太近，
+                # 旋转 90° 的文字也会重叠，需强制推到更远的 lane
+                x_close = []
+                if slot.attach_x is not None:
+                    for a in assigned:
+                        if a.attach_x is not None and abs(slot.attach_x - a.attach_x) < min_x_sep:
+                            x_close.append(a)
+
+                conflict = overlapping + x_close
+
+                if not conflict:
+                    # 无冲突：使用基础偏移
                     slot.assigned_offset = self.base_offset_J
                 else:
-                    # 有重叠：取最大已分配 offset + lane_spacing
-                    max_offset = max(a.assigned_offset for a in overlapping)
+                    # 有冲突：取最大已分配 offset + lane_spacing
+                    max_offset = max(a.assigned_offset for a in conflict)
                     slot.assigned_offset = max_offset + self.lane_spacing_J
 
                 assigned.append(slot)
@@ -1151,7 +1167,8 @@ def draw_cemented_assembly(ax, lenses_data,
                 priority=1,  # 直径标注在外侧
                 draw_fn=lambda offset_J, _ax=ax, _B_x=B_x, _MD=lens.MD, _lj=lj, _fs=font_size, _as=arrow_scale, _dtu=dtu, _dtd=dtd:
                     _ann_diameter_left(_ax, _B_x, _MD, _lj, offset_J, _fs, _as, _dtu, _dtd),
-                slot_id=f"dia_L_{i}"
+                slot_id=f"dia_L_{i}",
+                attach_x=B_x
             )
         else:
             # 其余片：右侧直径标注
@@ -1163,7 +1180,8 @@ def draw_cemented_assembly(ax, lenses_data,
                 priority=1,  # 直径标注在外侧
                 draw_fn=lambda offset_J, _ax=ax, _F_x=F_x, _MD=lens.MD, _lj=lj, _fs=font_size, _as=arrow_scale, _dtu=dtu, _dtd=dtd:
                     _ann_diameter(_ax, _F_x, _MD, _lj, offset_J, _fs, _as, _dtu, _dtd),
-                slot_id=f"dia_R_{i}"
+                slot_id=f"dia_R_{i}",
+                attach_x=F_x
             )
 
     # ── AD 标注也纳入 Lane 管理 ──
@@ -1183,10 +1201,11 @@ def draw_cemented_assembly(ax, lenses_data,
             direction="left",
             anchor_y_center=ad1_y_center,
             anchor_y_half_span=ad1_y_half,
-            priority=1,  # AD 优先级低于直径，放在外层
+            priority=0,  # AD 小口径在内侧，MD 大口径在外侧
             draw_fn=lambda offset_J, _ax=ax, _Bp=(B0_g_abs[0],lens0.MD/2), _Bn=(B0_g_abs[0],-lens0.MD/2), _AD1=lens0.AD_left, _lj=J, _fs=font_size, _as=arrow_scale:
                 _ann_ad1(_ax, _Bp, _Bn, _AD1, _lj, offset_J, _fs, _as),
-            slot_id="ad1_L"
+            slot_id="ad1_L",
+            attach_x=B0_g_abs[0]
         )
 
     # 最后一个曲面的 AD2（右侧）
@@ -1205,10 +1224,11 @@ def draw_cemented_assembly(ax, lenses_data,
             direction="right",
             anchor_y_center=ad2_y_center,
             anchor_y_half_span=ad2_y_half,
-            priority=1,  # AD 优先级低于直径，放在外层
+            priority=0,  # AD 小口径在内侧，MD 大口径在外侧
             draw_fn=lambda offset_J, _ax=ax, _Ep=(EN_g_abs[0],lensN.MD/2), _En=(EN_g_abs[0],-lensN.MD/2), _AD2=lensN.AD_right, _lj=J, _fs=font_size, _as=arrow_scale:
                 _ann_ad2(_ax, _Ep, _En, _AD2, _lj, offset_J, _fs, _as),
-            slot_id="ad2_R"
+            slot_id="ad2_R",
+            attach_x=EN_g_abs[0]
         )
 
     # ── 统一布局并绘制左右侧标注 ──
