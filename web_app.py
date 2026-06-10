@@ -30,7 +30,7 @@ from main import (
     _ann_chamfer_right, _ann_spraying, _ann_optical_axis,
     draw_cemented_assembly, _build_assembly_page_figure, export_cemented_pdf,
     build_cemented_preview_figures, get_preview_field_metadata,
-    extract_field_positions,
+    extract_field_positions, _resolve_cemented_ca,
 )
 from geometry import build_profile
 from config import DEFAULTS, validate, auto_chamfer, auto_CA, auto_N, auto_chamfer_by_dia
@@ -88,7 +88,8 @@ def batch_export_data_list(data_list, out_dir, settings):
             local_settings = settings.copy()
             if getattr(d, "proc_overrides", None):
                 local_settings.update(d.proc_overrides)
-            export_cemented_pdf(d, local_settings, fpath_save, hide_partname=False)
+            _page_ov = getattr(d, "page_overrides", None) or {}
+            export_cemented_pdf(d, local_settings, fpath_save, hide_partname=False, page_overrides=_page_ov)
             success_save += 1
         except Exception as e:
             errors.append(f"[{save_folder}] {d.part_name}: {e}")
@@ -97,7 +98,8 @@ def batch_export_data_list(data_list, out_dir, settings):
             local_settings = settings.copy()
             if getattr(d, "proc_overrides", None):
                 local_settings.update(d.proc_overrides)
-            export_cemented_pdf(d, local_settings, fpath_mfr, hide_partname=True)
+            _page_ov = getattr(d, "page_overrides", None) or {}
+            export_cemented_pdf(d, local_settings, fpath_mfr, hide_partname=True, page_overrides=_page_ov)
             success_mfr += 1
         except Exception as e:
             errors.append(f"[{mfr_folder}] {d.part_no}: {e}")
@@ -158,6 +160,37 @@ def _cemented_data_from_row_dict(row):
     elif isinstance(raw, dict):
         custom_proc = raw
 
+    # 防御性类型转换：确保数值型加工参数为正确类型
+    _NUMERIC_PROC_KEYS = {
+        'ca_ratio': float, 'chamfer_left': float, 'chamfer_right': float,
+        't_tol': float, 'sag_tol': float,
+        'dia_tol_pos_upper': float, 'dia_tol_pos_lower': float,
+        'dia_tol_nonpos_upper': float, 'dia_tol_nonpos_lower': float,
+        'cemented_ref_lens': int,
+    }
+    if custom_proc:
+        for key, cast in _NUMERIC_PROC_KEYS.items():
+            if key in custom_proc:
+                try:
+                    custom_proc[key] = cast(custom_proc[key])
+                except (ValueError, TypeError):
+                    pass
+
+    # 提取逐页覆盖参数
+    page_overrides = None
+    if custom_proc and 'page_overrides' in custom_proc:
+        page_overrides = custom_proc.pop('page_overrides')
+        # 对逐页覆盖参数也做数值类型转换
+        if isinstance(page_overrides, dict):
+            for _pg_key, _pg_dict in page_overrides.items():
+                if isinstance(_pg_dict, dict):
+                    for key, cast in _NUMERIC_PROC_KEYS.items():
+                        if key in _pg_dict:
+                            try:
+                                _pg_dict[key] = cast(_pg_dict[key])
+                            except (ValueError, TypeError):
+                                pass
+
     return CementedLensData(
         part_name=row.get("part_name", ""),
         part_no=row.get("part_no", ""),
@@ -165,6 +198,7 @@ def _cemented_data_from_row_dict(row):
         save_pdf_folder=row.get("save_pdf_folder", "Save PDF") or "Save PDF",
         mfr_pdf_folder=row.get("mfr_pdf_folder", "Mfr PDF") or "Mfr PDF",
         proc_overrides=custom_proc,
+        page_overrides=page_overrides,
     )
 
 
@@ -181,7 +215,7 @@ def _params_from_request():
         "CA1": data.get("CA1"),
         "CA2": data.get("CA2"),
         "CA_mode": data.get("CA_mode", "auto"),  # "auto" or "manual"
-        "ca_ratio": data.get("ca_ratio", 0.98),
+        "ca_ratio": data.get("ca_ratio", 0.94),
         "part_name": data.get("part_name", "singlelen"),
         "part_no": data.get("part_no", "100.2.00888"),
         "glass_name": data.get("glass_name", "H-K9L"),
@@ -366,7 +400,7 @@ def api_preview():
         )
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
-        ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.98))
+        ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.94))
         _current_settings["ca_ratio"] = ca_ratio  # sync to settings for downstream
         if p.get("CA_mode") == "manual":
             ca1 = float(p["CA1"]) if p.get("CA1") not in (None, "") else None
@@ -383,7 +417,7 @@ def api_preview():
         _dia_pos_lower = p.get("dia_tol_pos_lower", _current_settings.get("dia_tol_pos_lower", _current_settings.get("dia_tol_lower", 0.025)))
 
         # 计算实际显示值（用于预览叠加层）
-        _ca_ratio2 = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.98))
+        _ca_ratio2 = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.94))
         _ca1 = ca1 if ca1 is not None else auto_CA(AD1, _ca_ratio2)
         _ca2 = ca2 if ca2 is not None else auto_CA(AD2, _ca_ratio2)
         _n_mode = p.get("N_mode", _current_settings.get("proc_N_mode", "auto"))
@@ -451,7 +485,7 @@ def api_export():
         )
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
-        ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.98))
+        ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.94))
         _current_settings["ca_ratio"] = ca_ratio  # sync to settings for downstream
         if p.get("CA_mode") == "manual":
             ca1 = float(p["CA1"]) if p.get("CA1") not in (None, "") else None
@@ -538,6 +572,17 @@ def _cemented_augmented_settings(data):
         "dia_tol_nonpos_lower": "dia_tol_nonpos_lower",
         "cemented_ref_lens": "cemented_ref_lens",
         "coat_preset": "coat_preset",
+        "ca_ratio": "ca_ratio",
+        # 胶合镜片逐片 CA 手动输入
+        "ca_mode_1": "ca_mode_1",
+        "ca_1_left": "ca_1_left",
+        "ca_1_right": "ca_1_right",
+        "ca_mode_2": "ca_mode_2",
+        "ca_2_left": "ca_2_left",
+        "ca_2_right": "ca_2_right",
+        "ca_mode_3": "ca_mode_3",
+        "ca_3_left": "ca_3_left",
+        "ca_3_right": "ca_3_right",
     }
     for draw_key, settings_key in mapping.items():
         if draw_key in data:
@@ -558,8 +603,11 @@ def api_preview_cemented():
         # Use augmented settings with draw-module proc overrides (does not mutate global)
         local_settings = _cemented_augmented_settings(data)
 
+        # 提取逐页覆盖参数
+        page_overrides = data.get("page_overrides", None) or {}
+
         # Build all figures: [(label, fig), ...]
-        figures = build_cemented_preview_figures(cemented_data, local_settings)
+        figures = build_cemented_preview_figures(cemented_data, local_settings, page_overrides=page_overrides)
 
         images = []
         labels = []
@@ -585,9 +633,10 @@ def api_preview_cemented():
                 # 提取当前镜片索引并计算实际字段值
                 lens_idx = int(label.replace("镜片", "")) - 1
                 lens = cemented_data.lenses[lens_idx]
-                _ca_ratio = local_settings.get("ca_ratio", 0.98)
-                _ca1 = auto_CA(lens.AD_left, _ca_ratio)
-                _ca2 = auto_CA(lens.AD_right, _ca_ratio)
+                _ca_ratio = local_settings.get("ca_ratio", 0.94)
+                _ca1_manual, _ca2_manual = _resolve_cemented_ca(local_settings, lens_idx, _ca_ratio)
+                _ca1 = _ca1_manual if _ca1_manual is not None else auto_CA(lens.AD_left, _ca_ratio)
+                _ca2 = _ca2_manual if _ca2_manual is not None else auto_CA(lens.AD_right, _ca_ratio)
                 _n_mode = local_settings.get("proc_N_mode", "auto")
                 _n_val = float(local_settings.get("proc_N_manual", "1.5")) if _n_mode == "manual" else auto_N(lens.MD)
                 _chamfer_mode = local_settings.get("chamfer_mode", "auto")
@@ -661,7 +710,8 @@ def api_export_cemented():
 
         # Use augmented settings with draw-module proc overrides (does not mutate global)
         local_settings = _cemented_augmented_settings(data)
-        export_cemented_pdf(cemented_data, local_settings, filepath)
+        page_overrides = data.get("page_overrides", None) or {}
+        export_cemented_pdf(cemented_data, local_settings, filepath, page_overrides=page_overrides)
         return jsonify({"success": True, "path": filepath})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()})

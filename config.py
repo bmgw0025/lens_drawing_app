@@ -85,7 +85,7 @@ def auto_chamfer_by_dia(MD):
     return c
 
 
-def auto_CA(AD, ratio=0.98):
+def auto_CA(AD, ratio=0.94):
     """
     Auto-calculate Clear Aperture (净口径 CA) based on AD.
     CA = ratio * AD，向下取一位有效小数。

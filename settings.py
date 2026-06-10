@@ -59,7 +59,7 @@ DEFAULT_SETTINGS = {
     "coat_s2_angle1": "0-22",
     "coat_s2_angle2": "0-22",
     # CA自动计算系数
-    "ca_ratio": 0.98,
+    "ca_ratio": 0.94,
 }
 
 

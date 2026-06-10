@@ -298,6 +298,14 @@ uploadZone.addEventListener('drop', (e) => {
 // Import to editor
 btnImportToEditor.addEventListener('click', () => {
   if (!importedData.length) { showToast('没有可导入的数据', 'error'); return; }
+  // 从首行读取文件夹信息填入全局输入框
+  const firstItem = importedData[0];
+  if (firstItem.save_pdf_folder) {
+    document.getElementById('global-save-folder').value = firstItem.save_pdf_folder;
+  }
+  if (firstItem.mfr_pdf_folder) {
+    document.getElementById('global-mfr-folder').value = firstItem.mfr_pdf_folder;
+  }
   importedData.forEach(item => {
     addRow({
       part_name: item.part_name || '',
@@ -319,8 +327,6 @@ btnImportToEditor.addEventListener('click', () => {
       AD2: String(item.AD2 || ''),
       AD3: String(item.AD3 || ''),
       AD4: String(item.AD4 || ''),
-      save_pdf_folder: item.save_pdf_folder || '',
-      mfr_pdf_folder: item.mfr_pdf_folder || '',
     });
   });
   showToast(`已导入 ${importedData.length} 条到编辑器`, 'success');
@@ -360,7 +366,7 @@ function showProgress(title, desc) {
   requestAnimationFrame(() => overlay.classList.add('active'));
 }
 
-function updateProgress(current, total, errors, currentName) {
+function updateProgress(current, total, errors, currentName, isComplete) {
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   const fill = document.getElementById('prog-fill');
   if (fill) fill.style.width = pct + '%';
@@ -369,10 +375,14 @@ function updateProgress(current, total, errors, currentName) {
   const desc = document.getElementById('prog-desc');
   if (desc && currentName) desc.textContent = '正在导出: ' + currentName;
   const status = document.getElementById('prog-status');
-  if (status && errors > 0) {
-    status.innerHTML = '<span class="stat-err">失败: ' + errors + '</span>';
-  } else if (status) {
-    status.innerHTML = '<span class="stat-ok">全部成功</span>';
+  if (status) {
+    if (!isComplete) {
+      status.innerHTML = '<span style="color:var(--accent);">导出中...</span>';
+    } else if (errors > 0) {
+      status.innerHTML = '<span class="stat-err">失败: ' + errors + '</span>';
+    } else {
+      status.innerHTML = '<span class="stat-ok">全部成功</span>';
+    }
   }
 }
 
@@ -511,7 +521,7 @@ document.getElementById('btn-export-all').addEventListener('click', async () => 
   }
 
   // 4. Final progress update
-  updateProgress(completed, total, errorCount, '');
+  updateProgress(completed, total, errorCount, '', true);
   const desc = document.getElementById('prog-desc');
   if (desc) {
     if (errorCount === 0) {
@@ -618,9 +628,9 @@ createRow = function(data) {
   procBtn.addEventListener('mouseenter', () => { procBtn.style.background = 'var(--accent-light)'; procBtn.style.color = 'var(--accent)'; });
   procBtn.addEventListener('mouseleave', () => { procBtn.style.background = ''; procBtn.style.color = ''; });
   procTd.appendChild(procBtn);
-  // 把加工列插入到倒数第二个位置（删除按钮之前）
-  const actionsTd = tr.lastElementChild;
-  tr.insertBefore(procTd, actionsTd);
+  // 把加工列插入到类型列之前
+  const typeCell = tr.children[COLUMNS.length]; // type cell 紧跟 COLUMNS 列之后
+  tr.insertBefore(procTd, typeCell);
 
   // 同步自定义标记
   updateProcBtnStyle(tr, procBtn);
@@ -890,7 +900,7 @@ function autoFillPartNames() {
   const allTrs = editorBody.querySelectorAll('tr');
   allTrs.forEach((tr, i) => {
     const inp = tr.querySelector('input[data-col="part_name"]');
-    if (inp && inp.value === '') {
+    if (inp) {
       inp.value = code + '-' + (i + 1);
       inp.dispatchEvent(new Event('input', { bubbles: true }));
     }
@@ -900,6 +910,9 @@ function autoFillPartNames() {
 document.getElementById('global-mfr-folder').addEventListener('blur', () => {
   autoFillPartNames();
   scheduleSave();
+});
+document.getElementById('global-mfr-folder').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { autoFillPartNames(); scheduleSave(); }
 });
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -924,7 +937,7 @@ function autoFillPartNos() {
   let currentNo = base;
   allTrs.forEach(tr => {
     const inp = tr.querySelector('input[data-col="part_no"]');
-    if (inp && inp.value === '') {
+    if (inp) {
       inp.value = currentNo;
       inp.dispatchEvent(new Event('input', { bubbles: true }));
     }
@@ -953,6 +966,9 @@ function autoFillPartNoForRow(tr, data) {
 document.getElementById('global-partno-base').addEventListener('blur', () => {
   autoFillPartNos();
   scheduleSave();
+});
+document.getElementById('global-partno-base').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { autoFillPartNos(); scheduleSave(); }
 });
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1063,6 +1079,8 @@ if (!restoreSession()) {
    DRAW IFRAME INTEGRATION (replaces proc modal)
    ═══════════════════════════════════════════════════════════════════ */
 
+let _iframeReadyHandler = null;  // 用于关闭时清理
+
 function openDrawIframe(tr) {
   activeProcRow = tr;
   const rowData = getRowData(tr);
@@ -1081,15 +1099,26 @@ function openDrawIframe(tr) {
 
   // 加载 iframe
   const iframe = document.getElementById('draw-iframe');
-  iframe.src = '/draw?embed=1';
 
-  // iframe 加载完成后发送数据
-  iframe.onload = () => {
-    iframe.contentWindow.postMessage({
-      type: 'batch-row-data',
-      payload: { row: rowData, overrides: overrides }
-    }, '*');
+  // 清理上一次可能残留的 handler
+  if (_iframeReadyHandler) {
+    window.removeEventListener('message', _iframeReadyHandler);
+    _iframeReadyHandler = null;
+  }
+
+  // 监听 iframe 就绪信号（iframe 完成初始化后主动通知）
+  _iframeReadyHandler = (e) => {
+    if (e.data && e.data.type === 'iframe-ready') {
+      window.removeEventListener('message', _iframeReadyHandler);
+      _iframeReadyHandler = null;
+      iframe.contentWindow.postMessage({
+        type: 'batch-row-data',
+        payload: { row: rowData, overrides: overrides }
+      }, '*');
+    }
   };
+  window.addEventListener('message', _iframeReadyHandler);
+  iframe.src = '/draw?embed=1';
 }
 
 function closeDrawIframe() {
@@ -1098,18 +1127,15 @@ function closeDrawIframe() {
   const iframe = document.getElementById('draw-iframe');
   if (iframe) iframe.src = 'about:blank';
   activeProcRow = null;
+  // 清理就绪信号 handler
+  if (_iframeReadyHandler) {
+    window.removeEventListener('message', _iframeReadyHandler);
+    _iframeReadyHandler = null;
+  }
 }
 
 // 取消按钮
 document.getElementById('btn-draw-cancel').addEventListener('click', closeDrawIframe);
-
-// 保存按钮：通知 iframe 执行保存
-document.getElementById('btn-draw-save').addEventListener('click', () => {
-  const iframe = document.getElementById('draw-iframe');
-  if (iframe && iframe.contentWindow) {
-    iframe.contentWindow.postMessage({ type: 'draw-request-save' }, '*');
-  }
-});
 
 // 监听 iframe 保存消息
 window.addEventListener('message', (e) => {

@@ -9,6 +9,7 @@ let isExporting = false;
 let previewImages = [];    // 多图预览缓存 [{label, b64, fields, img_w, img_h}, ...]
 let previewIndex = 0;     // 当前显示的图片索引
 let currentImageBackendSize = null;  // {w, h} 后端返回的实际像素尺寸，用于精确 overlay 定位
+let pageOverrides = {};   // 逐页加工参数覆盖 { pageIndex: { settingKey: value, ... }, ... }
 
 /* ── Embedded mode detection ── */
 const _urlParams = new URLSearchParams(window.location.search);
@@ -184,18 +185,38 @@ function renderPreviewOverlays(fields) {
     div.style.top = f.top_pct + '%';
     div.style.width = f.w_pct + '%';
     div.style.height = f.h_pct + '%';
-    const inp = document.createElement('input');
-    inp.type = 'text';
-    inp.value = f.value || '';
-    inp.title = f.label + (f.source === 'calc' ? '（自动计算，编辑则切为手动）' : '');
-    inp.dataset.fieldId = f.id;
-    inp.dataset.source = f.source;
-    inp.addEventListener('change', onFieldEdit);
-    inp.addEventListener('blur', onFieldEdit);
-    inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { inp.blur(); }
-    });
-    div.appendChild(inp);
+
+    let el;
+    if (f.id === 'ranking') {
+      // ranking 字段使用下拉选择，与侧边栏一致
+      el = document.createElement('select');
+      const opts = [
+        { value: '01', label: '01' },
+        { value: '00 ND±0.0003%  VD±0.3%', label: '00 ND±0.0003%  VD±0.3%' },
+      ];
+      opts.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        if (f.value === o.value) opt.selected = true;
+        el.appendChild(opt);
+      });
+    } else {
+      el = document.createElement('input');
+      el.type = 'text';
+      el.value = f.value || '';
+    }
+    el.title = f.label + (f.source === 'calc' ? '（自动计算，编辑则切为手动）' : '');
+    el.dataset.fieldId = f.id;
+    el.dataset.source = f.source;
+    el.addEventListener('change', onFieldEdit);
+    if (el.tagName === 'INPUT') {
+      el.addEventListener('blur', onFieldEdit);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { el.blur(); }
+      });
+    }
+    div.appendChild(el);
     container.appendChild(div);
   });
 }
@@ -207,25 +228,57 @@ function onFieldEdit(e) {
   const newVal = inp.value.trim();
   if (!newVal) return;
 
-  const calcFields = {
-    'chamfer': () => { setParam('chamfer_mode', 'manual'); setParam('chamfer_left', newVal); },
-    'ca1': () => { setParam('CA_mode', 'manual'); setParam('CA1', newVal); },
-    'ca2': () => { setParam('CA_mode', 'manual'); setParam('CA2', newVal); },
-    'n_val': () => { setParam('N_mode', 'manual'); setParam('N_manual', newVal); },
-  };
-  const directFields = {
-    'vendor': () => {},
-    'ranking': () => { setParam('proc_ranking', newVal); },
-    'c_val': () => { setParam('proc_c_single', newVal); },
-    'dn_val': () => { setParam('DN', newVal); },
-    'b_val': () => { setParam('proc_b', newVal); },
-    'signature': () => { setParam('signature', newVal); },
-  };
+  // 判断是否在胶合镜片的单片页上编辑
+  const lensType = getLensType();
+  const isCementedPage = lensType !== 'single' && previewIndex > 0;
 
-  if (source === 'calc' && calcFields[fieldId]) {
-    calcFields[fieldId]();
-  } else if (directFields[fieldId]) {
-    directFields[fieldId]();
+  if (isCementedPage) {
+    // 逐页隔离：将编辑存入 pageOverrides
+    if (!pageOverrides[previewIndex]) pageOverrides[previewIndex] = {};
+    const ov = pageOverrides[previewIndex];
+
+    const cementedCalcFields = {
+      'chamfer': () => { ov['chamfer_mode'] = 'manual'; ov['chamfer_left'] = newVal; },
+      'ca1': () => { ov['ca_mode_' + previewIndex] = 'manual'; ov['ca_' + previewIndex + '_left'] = newVal; },
+      'ca2': () => { ov['ca_mode_' + previewIndex] = 'manual'; ov['ca_' + previewIndex + '_right'] = newVal; },
+      'n_val': () => { ov['N_mode'] = 'manual'; ov['N_manual'] = newVal; },
+    };
+    const cementedDirectFields = {
+      'vendor': () => {},
+      'ranking': () => { ov['proc_ranking'] = newVal; },
+      'c_val': () => { ov['proc_c_single'] = newVal; },
+      'dn_val': () => { ov['proc_DN'] = newVal; },
+      'b_val': () => { ov['proc_surface_defect'] = newVal; },
+      'signature': () => { ov['proc_signature'] = newVal; },
+    };
+
+    if (source === 'calc' && cementedCalcFields[fieldId]) {
+      cementedCalcFields[fieldId]();
+    } else if (cementedDirectFields[fieldId]) {
+      cementedDirectFields[fieldId]();
+    }
+  } else {
+    // 单片镜片或整体页：修改全局表单控件
+    const calcFields = {
+      'chamfer': () => { setParam('chamfer_mode', 'manual'); setParam('chamfer_left', newVal); },
+      'ca1': () => { setParam('CA_mode', 'manual'); setParam('CA1', newVal); },
+      'ca2': () => { setParam('CA_mode', 'manual'); setParam('CA2', newVal); },
+      'n_val': () => { setParam('N_mode', 'manual'); setParam('N_manual', newVal); },
+    };
+    const directFields = {
+      'vendor': () => {},
+      'ranking': () => { setParam('proc_ranking', newVal); },
+      'c_val': () => { setParam('proc_c_single', newVal); },
+      'dn_val': () => { setParam('DN', newVal); },
+      'b_val': () => { setParam('proc_b', newVal); },
+      'signature': () => { setParam('signature', newVal); },
+    };
+
+    if (source === 'calc' && calcFields[fieldId]) {
+      calcFields[fieldId]();
+    } else if (directFields[fieldId]) {
+      directFields[fieldId]();
+    }
   }
   refreshPreview();
 }
@@ -308,6 +361,26 @@ function updateLensTypeUI() {
   const refSelect = document.getElementById('cemented_ref_lens');
   if (refRow) {
     refRow.style.display = (type === 'single') ? 'none' : 'flex';
+  }
+
+  // CA section: show single CA for single lens, cemented CA section for doublet/triplet
+  const singleCaMode = document.getElementById('CA_mode');
+  const singleCaRatio = document.getElementById('ca-ratio-row');
+  const singleCa1 = document.getElementById('ca1-manual-row');
+  const singleCa2 = document.getElementById('ca2-manual-row');
+  const cementedCaSection = document.getElementById('cemented-ca-section');
+  if (type === 'single') {
+    // 显示单片 CA 控件
+    if (singleCaMode) singleCaMode.closest('.param-row').style.display = 'flex';
+    updateCAInputs();
+    if (cementedCaSection) cementedCaSection.style.display = 'none';
+  } else {
+    // 隐藏单片 CA 手动行，显示胶合 CA 区域
+    if (singleCa1) singleCa1.style.display = 'none';
+    if (singleCa2) singleCa2.style.display = 'none';
+    if (cementedCaSection) cementedCaSection.style.display = 'block';
+    // 更新逐片 CA 模式显示
+    for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
   }
   // Dynamically rebuild options: doublet → 1/2, triplet → 1/2/3
   if (refSelect && type !== 'single') {
@@ -414,6 +487,17 @@ function collectParams() {
     dia_tol_nonpos_upper: getNum('dia_tol_nonpos_upper'),
     dia_tol_nonpos_lower: getNum('dia_tol_nonpos_lower'),
     cemented_ref_lens: parseInt(getVal('cemented_ref_lens')) || 2,
+
+    // 胶合镜片逐片 CA 手动输入
+    ca_mode_1: getVal('ca_mode_1'),
+    ca_1_left: getVal('ca_1_left'),
+    ca_1_right: getVal('ca_1_right'),
+    ca_mode_2: getVal('ca_mode_2'),
+    ca_2_left: getVal('ca_2_left'),
+    ca_2_right: getVal('ca_2_right'),
+    ca_mode_3: getVal('ca_mode_3'),
+    ca_3_left: getVal('ca_3_left'),
+    ca_3_right: getVal('ca_3_right'),
   };
 }
 
@@ -460,6 +544,11 @@ async function refreshPreview() {
             dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
             cemented_ref_lens: params.cemented_ref_lens,
             coat_preset: params.coat_preset,
+            ca_ratio: params.ca_ratio,
+            ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
+            ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
+            ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+            page_overrides: pageOverrides,
           }),
         });
       }
@@ -532,6 +621,11 @@ async function doExport(fullpath) {
           dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
           cemented_ref_lens: params.cemented_ref_lens,
           coat_preset: params.coat_preset,
+          ca_ratio: params.ca_ratio,
+          ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
+          ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
+          ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+          page_overrides: pageOverrides,
         }),
       });
     }
@@ -592,7 +686,7 @@ function resetParams() {
     T: '5.4', R1: '35.406', R2: '-35.259', MD: '13.5',
     AD1: '13.5', AD2: '13.5',
     CA1: '13.00', CA2: '13.00',
-    CA_mode: 'auto', ca_ratio: '0.98',
+    CA_mode: 'auto', ca_ratio: '0.94',
     part_name: 'singlelen', part_no: '100.2.00888', glass_name: 'H-FK61B',
     glass2: 'H-ZLAF55D', T2: '1.4', R3: '147.008', MD2: '13.5', AD3: '12',
     glass3: 'H-ZF11', T3: '3', R4: '-147.008', MD3: '12', AD4: '12',
@@ -611,6 +705,9 @@ function resetParams() {
     dia_tol_pos_upper: '0.010', dia_tol_pos_lower: '0.025',
     dia_tol_nonpos_upper: '0.05', dia_tol_nonpos_lower: '0.10',
     cemented_ref_lens: '2',
+    ca_mode_1: 'auto', ca_1_left: '', ca_1_right: '',
+    ca_mode_2: 'auto', ca_2_left: '', ca_2_right: '',
+    ca_mode_3: 'auto', ca_3_left: '', ca_3_right: '',
   };
 
   for (const [id, val] of Object.entries(defaults)) {
@@ -645,6 +742,16 @@ function updateCAInputs() {
   if (ratioRow) ratioRow.style.display = isAuto ? 'flex' : 'none';
   if (ca1Row) ca1Row.style.display = isAuto ? 'none' : 'flex';
   if (ca2Row) ca2Row.style.display = isAuto ? 'none' : 'flex';
+}
+
+/* ── Cemented per-lens CA Mode toggle ── */
+function updateCementedCAMode(idx) {
+  const mode = document.getElementById(`ca_mode_${idx}`);
+  const isManual = mode ? mode.value === 'manual' : false;
+  const leftRow = document.getElementById(`ca-${idx}-left-row`);
+  const rightRow = document.getElementById(`ca-${idx}-right-row`);
+  if (leftRow) leftRow.style.display = isManual ? 'flex' : 'none';
+  if (rightRow) rightRow.style.display = isManual ? 'flex' : 'none';
 }
 
 /* ── N Mode toggle ── */
@@ -684,7 +791,10 @@ function bindEvents() {
     'chamfer_mode','chamfer_left','chamfer_right',
     't_tol','sag_tol',
     'dia_tol_pos_upper','dia_tol_pos_lower','dia_tol_nonpos_upper','dia_tol_nonpos_lower',
-    'cemented_ref_lens'
+    'cemented_ref_lens',
+    'ca_mode_1','ca_1_left','ca_1_right',
+    'ca_mode_2','ca_2_left','ca_2_right',
+    'ca_mode_3','ca_3_left','ca_3_right',
   ];
   paramIds.forEach(id => {
     const el = document.getElementById(id);
@@ -699,6 +809,12 @@ function bindEvents() {
   // CA mode selector
   const caMode = document.getElementById('CA_mode');
   if (caMode) caMode.addEventListener('change', () => { updateCAInputs(); refreshPreview(); });
+
+  // Cemented per-lens CA mode selectors
+  for (let i = 1; i <= 3; i++) {
+    const cm = document.getElementById(`ca_mode_${i}`);
+    if (cm) cm.addEventListener('change', () => { updateCementedCAMode(i); refreshPreview(); });
+  }
 
   // N mode selector
   const nMode = document.getElementById('N_mode');
@@ -795,6 +911,7 @@ async function loadDrawDefaults() {
     updateCAInputs();
     updateNInputs();
     updateChamferInputs();
+    for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
   } catch (err) {
     console.warn('加载设置失败，使用默认值:', err.message);
   }
@@ -818,15 +935,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnSaveReturn.style.display = '';
       btnSaveReturn.addEventListener('click', saveAndReturn);
     }
-    // 监听父窗口消息
-    window.addEventListener('message', onParentMessage);
   }
-  await loadDrawDefaults();  // 从通用设置加载初始值
+  await loadDrawDefaults();  // 从通用设置加载初始值（必须在注册 message listener 之前完成，避免竞态覆盖）
   updateLensTypeUI();
   bindEvents();
   bindOverlayToggle();
-  if (!embeddedMode) {
-    refreshPreview();  // 嵌入模式等待父窗口发送数据后再刷新
+  if (embeddedMode) {
+    // 注册父窗口消息监听（在 loadDrawDefaults 之后，确保不会被通用设置覆盖）
+    window.addEventListener('message', onParentMessage);
+    // 通知父页面 iframe 已就绪，可以发送数据
+    window.parent.postMessage({ type: 'iframe-ready' }, '*');
+  } else {
+    refreshPreview();
   }
 });
 
@@ -892,6 +1012,9 @@ function applyOverrides(overrides) {
     coat_s1_angle2: 'coat_s1_angle2',
     coat_s2_angle1: 'coat_s2_angle1',
     coat_s2_angle2: 'coat_s2_angle2',
+    ca_mode_1: 'ca_mode_1', ca_1_left: 'ca_1_left', ca_1_right: 'ca_1_right',
+    ca_mode_2: 'ca_mode_2', ca_2_left: 'ca_2_left', ca_2_right: 'ca_2_right',
+    ca_mode_3: 'ca_mode_3', ca_3_left: 'ca_3_left', ca_3_right: 'ca_3_right',
   };
   for (const [key, elId] of Object.entries(fieldMap)) {
     if (overrides[key] !== undefined) {
@@ -903,6 +1026,7 @@ function applyOverrides(overrides) {
   updateCAInputs();
   updateNInputs();
   updateChamferInputs();
+  for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
 }
 
 function onParentMessage(e) {
@@ -919,8 +1043,30 @@ function onParentMessage(e) {
     if (radio) radio.checked = true;
     updateLensTypeUI();
 
+    // 将行数据的几何参数写入表单（预览使用实际镜片参数）
+    const rowFieldMap = {
+      glass1: 'glass_name', T1: 'T', R1: 'R1', R2: 'R2',
+      MD1: 'MD', AD1: 'AD1', AD2: 'AD2',
+      part_name: 'part_name', part_no: 'part_no',
+      glass2: 'glass2', T2: 'T2', R3: 'R3', MD2: 'MD2', AD3: 'AD3',
+      glass3: 'glass3', T3: 'T3', R4: 'R4', MD3: 'MD3', AD4: 'AD4',
+    };
+    for (const [rowKey, elId] of Object.entries(rowFieldMap)) {
+      if (row[rowKey] !== undefined && row[rowKey] !== '') {
+        const el = document.getElementById(elId);
+        if (el) el.value = row[rowKey];
+      }
+    }
+
     // 应用已有覆盖参数
     applyOverrides(overrides);
+
+    // 恢复逐页覆盖参数
+    if (overrides.page_overrides && typeof overrides.page_overrides === 'object') {
+      pageOverrides = overrides.page_overrides;
+    } else {
+      pageOverrides = {};
+    }
 
     // 刷新预览
     refreshPreview();
@@ -970,6 +1116,10 @@ function saveAndReturn() {
     coat_s1_angle2: params.coat_s1_angle2,
     coat_s2_angle1: params.coat_s2_angle1,
     coat_s2_angle2: params.coat_s2_angle2,
+    ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
+    ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
+    ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+    page_overrides: pageOverrides,
   };
   window.parent.postMessage({ type: 'draw-save', payload: overrides }, '*');
 }

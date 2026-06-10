@@ -40,6 +40,7 @@ app_settings.json
 # IDE / OS
 .vscode/
 .idea/
+.qoder/
 .DS_Store
 Thumbs.db
 

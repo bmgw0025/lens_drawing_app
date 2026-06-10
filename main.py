@@ -595,7 +595,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     import matplotlib.pyplot as plt
 
     # ====================== 计算自动变量 ======================
-    _ca_ratio = settings.get("ca_ratio", 0.98) if settings else 0.98
+    _ca_ratio = settings.get("ca_ratio", 0.94) if settings else 0.94
     CA1=ca1 if ca1 is not None else auto_CA(AD1, _ca_ratio)
     CA2=ca2 if ca2 is not None else auto_CA(AD2, _ca_ratio)
     today=datetime.now().strftime("%Y.%m.%d")
@@ -1402,9 +1402,12 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
 
     # 计算参数
     max_MD=max(l.MD for l in lenses)
-    _ca_ratio = settings.get("ca_ratio", 0.98) if settings else 0.98
-    CA1=auto_CA(lenses[0].AD_left, _ca_ratio)
-    CA2=auto_CA(lenses[-1].AD_right, _ca_ratio)
+    _ca_ratio = settings.get("ca_ratio", 0.94) if settings else 0.94
+    # 组装页 CA：检查第1片和最后一片的手动 CA 值
+    _ca_first, _ = _resolve_cemented_ca(settings, 0, _ca_ratio)
+    CA1 = _ca_first if _ca_first is not None else auto_CA(lenses[0].AD_left, _ca_ratio)
+    _, _ca_last = _resolve_cemented_ca(settings, len(lenses) - 1, _ca_ratio)
+    CA2 = _ca_last if _ca_last is not None else auto_CA(lenses[-1].AD_right, _ca_ratio)
     var_c=s("proc_c_assembly","60″")
     var_sig=s("proc_signature","l.y.h")
     var_vnd=s("proc_vendor","CDGM")
@@ -1648,10 +1651,26 @@ def extract_field_positions(fig, dpi=100):
     return positions
 
 
-def build_cemented_preview_figures(cemented_data, settings):
+def _resolve_cemented_ca(settings, lens_index, ca_ratio):
+    """返回 (ca1, ca2) — None 表示使用自动计算。
+    根据 settings 中的 ca_mode_N / ca_N_left / ca_N_right 字段决定。
+    """
+    mode = settings.get(f"ca_mode_{lens_index + 1}", "auto")
+    if mode == "manual":
+        left = settings.get(f"ca_{lens_index + 1}_left")
+        right = settings.get(f"ca_{lens_index + 1}_right")
+        ca1 = float(left) if left not in (None, "") else None
+        ca2 = float(right) if right not in (None, "") else None
+    else:
+        ca1 = ca2 = None
+    return ca1, ca2
+
+
+def build_cemented_preview_figures(cemented_data, settings, page_overrides=None):
     """构建胶合镜片预览所需的所有 Figure：组装页 + 各单片页。
     返回: [(label, figure), ...]  其中 label 如 "整体"、"镜片1"、"镜片2"
     供预览 API 使用，避免与 PDF 导出逻辑重复。
+    page_overrides: { pageIndex: { settingKey: value, ... }, ... } 逐页加工参数覆盖
     """
     from config import auto_chamfer, auto_chamfer_by_dia
 
@@ -1661,11 +1680,15 @@ def build_cemented_preview_figures(cemented_data, settings):
         return []  # 不应调用此函数
 
     figures = []
+    if page_overrides is None:
+        page_overrides = {}
 
     # ── 组装页 ──
     total_pages = 1 + len(lenses)
     fig_asm = _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=total_pages)
     figures.append(("整体", fig_asm))
+
+    _ca_ratio = settings.get("ca_ratio", 0.94)
 
     # ── 各单片页 ──
     for i, lens in enumerate(lenses):
@@ -1675,65 +1698,75 @@ def build_cemented_preview_figures(cemented_data, settings):
         has_outer_s1 = is_first_lens
         has_outer_s2 = is_last_lens
 
+        # 合并逐页覆盖参数
+        lens_settings = settings.copy()
+        frontend_page_idx = i + 1  # 前端页面索引: 1=镜片1, 2=镜片2...
+        page_ov = page_overrides.get(frontend_page_idx, page_overrides.get(str(frontend_page_idx), {}))
+        if page_ov:
+            lens_settings.update(page_ov)
+
         proc_params = {
             "part_name": "",
             "part_no": "",
             "glass_name": lens.glass,
-            "proc_c_single": settings.get("proc_c_single", "60″"),
-            "proc_b": settings.get("proc_surface_defect", "60/40"),
-            "N_mode": settings.get("proc_N_mode", "auto"),
-            "N_manual": settings.get("proc_N_manual", "1.5"),
-            "DN": settings.get("proc_DN", "0.3"),
-            "signature": settings.get("proc_signature", "l.y.h"),
-            "proc_ranking": settings.get("proc_ranking", "01"),
-            "coat_s1_wave1": settings.get("coat_s1_wave1", "420-680") if has_outer_s1 else "",
-            "coat_s1_wave2": settings.get("coat_s1_wave2", "850/940") if has_outer_s1 else "",
-            "coat_s2_wave1": settings.get("coat_s2_wave1", "420-680") if has_outer_s2 else "",
-            "coat_s2_wave2": settings.get("coat_s2_wave2", "850/940") if has_outer_s2 else "",
-            "coat_s1_ravg1": settings.get("coat_s1_ravg1", "0.5") if has_outer_s1 else "",
-            "coat_s1_ravg2": settings.get("coat_s1_ravg2", "1") if has_outer_s1 else "",
-            "coat_s2_ravg1": settings.get("coat_s2_ravg1", "0.5") if has_outer_s2 else "",
-            "coat_s2_ravg2": settings.get("coat_s2_ravg2", "1") if has_outer_s2 else "",
-            "coat_s1_angle1": settings.get("coat_s1_angle1", "0-22") if has_outer_s1 else "",
-            "coat_s1_angle2": settings.get("coat_s1_angle2", "0-22") if has_outer_s1 else "",
-            "coat_s2_angle1": settings.get("coat_s2_angle1", "0-22") if has_outer_s2 else "",
-            "coat_s2_angle2": settings.get("coat_s2_angle2", "0-22") if has_outer_s2 else "",
+            "proc_c_single": lens_settings.get("proc_c_single", "60″"),
+            "proc_b": lens_settings.get("proc_surface_defect", "60/40"),
+            "N_mode": lens_settings.get("proc_N_mode", "auto"),
+            "N_manual": lens_settings.get("proc_N_manual", "1.5"),
+            "DN": lens_settings.get("proc_DN", "0.3"),
+            "signature": lens_settings.get("proc_signature", "l.y.h"),
+            "proc_ranking": lens_settings.get("proc_ranking", "01"),
+            "coat_s1_wave1": lens_settings.get("coat_s1_wave1", "420-680") if has_outer_s1 else "",
+            "coat_s1_wave2": lens_settings.get("coat_s1_wave2", "850/940") if has_outer_s1 else "",
+            "coat_s2_wave1": lens_settings.get("coat_s2_wave1", "420-680") if has_outer_s2 else "",
+            "coat_s2_wave2": lens_settings.get("coat_s2_wave2", "850/940") if has_outer_s2 else "",
+            "coat_s1_ravg1": lens_settings.get("coat_s1_ravg1", "0.5") if has_outer_s1 else "",
+            "coat_s1_ravg2": lens_settings.get("coat_s1_ravg2", "1") if has_outer_s1 else "",
+            "coat_s2_ravg1": lens_settings.get("coat_s2_ravg1", "0.5") if has_outer_s2 else "",
+            "coat_s2_ravg2": lens_settings.get("coat_s2_ravg2", "1") if has_outer_s2 else "",
+            "coat_s1_angle1": lens_settings.get("coat_s1_angle1", "0-22") if has_outer_s1 else "",
+            "coat_s1_angle2": lens_settings.get("coat_s1_angle2", "0-22") if has_outer_s1 else "",
+            "coat_s2_angle1": lens_settings.get("coat_s2_angle1", "0-22") if has_outer_s2 else "",
+            "coat_s2_angle2": lens_settings.get("coat_s2_angle2", "0-22") if has_outer_s2 else "",
             "is_cemented_single": True,
             "has_outer_s1": has_outer_s1,
             "has_outer_s2": has_outer_s2,
-            "coat_preset": settings.get("coat_preset", "Custom"),
+            "coat_preset": lens_settings.get("coat_preset", "Custom"),
         }
 
-        chamfer_mode = settings.get("chamfer_mode", "auto")
+        chamfer_mode = lens_settings.get("chamfer_mode", "auto")
         if chamfer_mode == "auto":
             c_val = auto_chamfer_by_dia(lens.MD)
             cL, cR = c_val, c_val
         else:
-            cL = settings.get("chamfer_left", 0.2)
-            cR = settings.get("chamfer_right", 0.4)
+            cL = lens_settings.get("chamfer_left", 0.2)
+            cR = lens_settings.get("chamfer_right", 0.4)
 
-        cemented_ref = int(settings.get("cemented_ref_lens", 2))
+        cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
         ref_index = cemented_ref - 1
         if i != ref_index:
-            single_dia_upper = settings.get("dia_tol_nonpos_upper", 0.05)
-            single_dia_lower = settings.get("dia_tol_nonpos_lower", 0.10)
+            single_dia_upper = lens_settings.get("dia_tol_nonpos_upper", 0.05)
+            single_dia_lower = lens_settings.get("dia_tol_nonpos_lower", 0.10)
         else:
-            single_dia_upper = settings.get("dia_tol_pos_upper", settings.get("dia_tol_upper", 0.010))
-            single_dia_lower = settings.get("dia_tol_pos_lower", settings.get("dia_tol_lower", 0.025))
+            single_dia_upper = lens_settings.get("dia_tol_pos_upper", lens_settings.get("dia_tol_upper", 0.010))
+            single_dia_lower = lens_settings.get("dia_tol_pos_lower", lens_settings.get("dia_tol_lower", 0.025))
+
+        _ca_ratio_page = lens_settings.get("ca_ratio", _ca_ratio)
+        ca1, ca2 = _resolve_cemented_ca(lens_settings, i, _ca_ratio_page)
 
         fig_s = _build_single_page_figure(
             lens.T, lens.R_left, lens.R_right, lens.MD, lens.AD_left, lens.AD_right,
-            settings.get("J_multiplier", 0.10),
-            settings.get("ct_offset_J", 3.0), settings.get("et_offset_J", 2.0),
-            settings.get("sag_offset_J", 3.0), settings.get("dia_offset_J", 3.0),
-            settings.get("ad_offset_J", 2.0), settings.get("spray_gap_J", 0.1),
+            lens_settings.get("J_multiplier", 0.10),
+            lens_settings.get("ct_offset_J", 3.0), lens_settings.get("et_offset_J", 2.0),
+            lens_settings.get("sag_offset_J", 3.0), lens_settings.get("dia_offset_J", 3.0),
+            lens_settings.get("ad_offset_J", 2.0), lens_settings.get("spray_gap_J", 0.1),
             cL, cR,
-            settings.get("t_tol", 0.02), settings.get("sag_tol", 0.02),
-            settings.get("font_size", 9), settings.get("arrow_scale", 1.0),
-            settings.get("r_offset_J", 0.8),
+            lens_settings.get("t_tol", 0.02), lens_settings.get("sag_tol", 0.02),
+            lens_settings.get("font_size", 9), lens_settings.get("arrow_scale", 1.0),
+            lens_settings.get("r_offset_J", 0.8),
             single_dia_upper, single_dia_lower,
-            proc_params, settings,
-            ca1=None, ca2=None,
+            proc_params, lens_settings,
+            ca1=ca1, ca2=ca2,
             page_no=page_no, total_pages=total_pages,
             hide_partname=False,
         )
@@ -1743,9 +1776,10 @@ def build_cemented_preview_figures(cemented_data, settings):
 
 
 # ── 胶合镜片多页 PDF 导出 ────────────────────────────────────────
-def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=False):
+def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=False, page_overrides=None):
     """导出胶合镜片多页 PDF（整体页 + 各单片页）
     hide_partname: 为True时表格中PartName留空（用于Mfr PDF）
+    page_overrides: { pageIndex: { settingKey: value, ... }, ... } 逐页加工参数覆盖
     """
     from matplotlib.backends.backend_pdf import PdfPages
     from config import auto_CA, auto_chamfer, auto_chamfer_by_dia
@@ -1754,6 +1788,8 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
     is_multi = len(lenses) > 1
     # 总页数：整体页(1) + 各单片页(N)
     total_pages = (1 if is_multi else 0) + len(lenses)
+    if page_overrides is None:
+        page_overrides = {}
 
     with PdfPages(output_path) as pdf:
         # ── 第 1 页：整体组装图（仅双胶合/三胶合） ──
@@ -1770,68 +1806,76 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
             has_outer_s1 = is_first_lens   # 只有第一片的S1需要⨁
             has_outer_s2 = is_last_lens    # 只有最后一片的S2需要⨁
 
+            # 合并逐页覆盖参数
+            lens_settings = settings.copy()
+            frontend_page_idx = i + 1
+            page_ov = page_overrides.get(frontend_page_idx, page_overrides.get(str(frontend_page_idx), {}))
+            if page_ov:
+                lens_settings.update(page_ov)
+
             proc_params = {
                 "part_name": "" if is_multi else cemented_data.part_name,
                 "part_no": "" if is_multi else cemented_data.part_no,
                 "glass_name": lens.glass,
-                "proc_c_single": settings.get("proc_c_single","60″"),
-                "proc_b": settings.get("proc_surface_defect","60/40"),
-                "N_mode": settings.get("proc_N_mode","auto"),
-                "N_manual": settings.get("proc_N_manual","1.5"),
-                "DN": settings.get("proc_DN","0.3"),
-                "signature": settings.get("proc_signature","l.y.h"),
-                "coat_s1_wave1": settings.get("coat_s1_wave1","420-680") if has_outer_s1 else "",
-                "coat_s1_wave2": settings.get("coat_s1_wave2","850/940") if has_outer_s1 else "",
-                "coat_s2_wave1": settings.get("coat_s2_wave1","420-680") if has_outer_s2 else "",
-                "coat_s2_wave2": settings.get("coat_s2_wave2","850/940") if has_outer_s2 else "",
-                "coat_s1_ravg1": settings.get("coat_s1_ravg1","0.5") if has_outer_s1 else "",
-                "coat_s1_ravg2": settings.get("coat_s1_ravg2","1") if has_outer_s1 else "",
-                "coat_s2_ravg1": settings.get("coat_s2_ravg1","0.5") if has_outer_s2 else "",
-                "coat_s2_ravg2": settings.get("coat_s2_ravg2","1") if has_outer_s2 else "",
-                "coat_s1_angle1": settings.get("coat_s1_angle1","0-22") if has_outer_s1 else "",
-                "coat_s1_angle2": settings.get("coat_s1_angle2","0-22") if has_outer_s1 else "",
-                "coat_s2_angle1": settings.get("coat_s2_angle1","0-22") if has_outer_s2 else "",
-                "coat_s2_angle2": settings.get("coat_s2_angle2","0-22") if has_outer_s2 else "",
-                "is_cemented_single": is_multi,   # 多片胶合时为True（隐藏喷漆线），独立单片时为False（绘制喷漆线）
-                "has_outer_s1": has_outer_s1,     # S1是否是最外侧（需要⨁）
-                "has_outer_s2": has_outer_s2,     # S2是否是最外侧（需要⨁）
-                "coat_preset": settings.get("coat_preset", "Custom"),
+                "proc_c_single": lens_settings.get("proc_c_single","60″"),
+                "proc_b": lens_settings.get("proc_surface_defect","60/40"),
+                "N_mode": lens_settings.get("proc_N_mode","auto"),
+                "N_manual": lens_settings.get("proc_N_manual","1.5"),
+                "DN": lens_settings.get("proc_DN","0.3"),
+                "signature": lens_settings.get("proc_signature","l.y.h"),
+                "proc_ranking": lens_settings.get("proc_ranking", "01"),
+                "coat_s1_wave1": lens_settings.get("coat_s1_wave1","420-680") if has_outer_s1 else "",
+                "coat_s1_wave2": lens_settings.get("coat_s1_wave2","850/940") if has_outer_s1 else "",
+                "coat_s2_wave1": lens_settings.get("coat_s2_wave1","420-680") if has_outer_s2 else "",
+                "coat_s2_wave2": lens_settings.get("coat_s2_wave2","850/940") if has_outer_s2 else "",
+                "coat_s1_ravg1": lens_settings.get("coat_s1_ravg1","0.5") if has_outer_s1 else "",
+                "coat_s1_ravg2": lens_settings.get("coat_s1_ravg2","1") if has_outer_s1 else "",
+                "coat_s2_ravg1": lens_settings.get("coat_s2_ravg1","0.5") if has_outer_s2 else "",
+                "coat_s2_ravg2": lens_settings.get("coat_s2_ravg2","1") if has_outer_s2 else "",
+                "coat_s1_angle1": lens_settings.get("coat_s1_angle1","0-22") if has_outer_s1 else "",
+                "coat_s1_angle2": lens_settings.get("coat_s1_angle2","0-22") if has_outer_s1 else "",
+                "coat_s2_angle1": lens_settings.get("coat_s2_angle1","0-22") if has_outer_s2 else "",
+                "coat_s2_angle2": lens_settings.get("coat_s2_angle2","0-22") if has_outer_s2 else "",
+                "is_cemented_single": is_multi,
+                "has_outer_s1": has_outer_s1,
+                "has_outer_s2": has_outer_s2,
+                "coat_preset": lens_settings.get("coat_preset", "Custom"),
             }
-            # 倒角计算：优先从 proc_params 读取，fallback 到 settings
-            chamfer_mode = proc_params.get("chamfer_mode", settings.get("chamfer_mode","auto"))
+            # 倒角计算
+            chamfer_mode = lens_settings.get("chamfer_mode","auto")
             if chamfer_mode == "auto":
                 if is_multi:
-                    # 胶合镜片中的单片：统一按直径，左右不区分
                     c_val = auto_chamfer_by_dia(lens.MD)
                     cL, cR = c_val, c_val
                 else:
-                    # 独立单片：按直径+曲率区分左右
                     cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
             else:
-                cL = proc_params.get("chamfer_left", settings.get("chamfer_left",0.2))
-                cR = proc_params.get("chamfer_right", settings.get("chamfer_right",0.4))
+                cL = lens_settings.get("chamfer_left",0.2)
+                cR = lens_settings.get("chamfer_right",0.4)
             # 胶合单片直径公差：定位镜片用定位公差，其余用非定位公差
-            cemented_ref = int(settings.get("cemented_ref_lens", 2))  # 1-based
-            ref_index = cemented_ref - 1  # 0-based
+            cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
+            ref_index = cemented_ref - 1
             if is_multi and i != ref_index:
-                single_dia_upper = settings.get("dia_tol_nonpos_upper", 0.05)
-                single_dia_lower = settings.get("dia_tol_nonpos_lower", 0.10)
+                single_dia_upper = lens_settings.get("dia_tol_nonpos_upper", 0.05)
+                single_dia_lower = lens_settings.get("dia_tol_nonpos_lower", 0.10)
             else:
-                single_dia_upper = settings.get("dia_tol_pos_upper", settings.get("dia_tol_upper",0.010))
-                single_dia_lower = settings.get("dia_tol_pos_lower", settings.get("dia_tol_lower",0.025))
+                single_dia_upper = lens_settings.get("dia_tol_pos_upper", lens_settings.get("dia_tol_upper",0.010))
+                single_dia_lower = lens_settings.get("dia_tol_pos_lower", lens_settings.get("dia_tol_lower",0.025))
+            _ca_ratio = lens_settings.get("ca_ratio", 0.94)
+            ca1_i, ca2_i = _resolve_cemented_ca(lens_settings, i, _ca_ratio)
             fig_s = _build_single_page_figure(
                 lens.T, lens.R_left, lens.R_right, lens.MD, lens.AD_left, lens.AD_right,
-                settings.get("J_multiplier",0.10),
-                settings.get("ct_offset_J",3.0), settings.get("et_offset_J",2.0),
-                settings.get("sag_offset_J",3.0), settings.get("dia_offset_J",3.0),
-                settings.get("ad_offset_J",2.0), settings.get("spray_gap_J",0.1),
+                lens_settings.get("J_multiplier",0.10),
+                lens_settings.get("ct_offset_J",3.0), lens_settings.get("et_offset_J",2.0),
+                lens_settings.get("sag_offset_J",3.0), lens_settings.get("dia_offset_J",3.0),
+                lens_settings.get("ad_offset_J",2.0), lens_settings.get("spray_gap_J",0.1),
                 cL, cR,
-                settings.get("t_tol",0.02), settings.get("sag_tol",0.02),
-                settings.get("font_size",9), settings.get("arrow_scale",1.0),
-                settings.get("r_offset_J",0.8),
+                lens_settings.get("t_tol",0.02), lens_settings.get("sag_tol",0.02),
+                lens_settings.get("font_size",9), lens_settings.get("arrow_scale",1.0),
+                lens_settings.get("r_offset_J",0.8),
                 single_dia_upper, single_dia_lower,
-                proc_params, settings,
-                ca1=None, ca2=None,
+                proc_params, lens_settings,
+                ca1=ca1_i, ca2=ca2_i,
                 page_no=page_no, total_pages=total_pages,
                 hide_partname=hide_partname,
             )
@@ -1839,7 +1883,7 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
 
 
 # ── 胶合镜片 PDF 字节生成（供预览 API 使用）────────────────────────
-def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False):
+def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False, page_overrides=None):
     """生成胶合镜片多页 PDF 字节，返回 bytes。
     与 export_cemented_pdf() 逻辑相同，但输出到 BytesIO 而非文件。
     """
@@ -1849,6 +1893,8 @@ def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False):
     lenses = cemented_data.lenses
     is_multi = len(lenses) > 1
     total_pages = (1 if is_multi else 0) + len(lenses)
+    if page_overrides is None:
+        page_overrides = {}
 
     with PdfPages(buf) as pdf:
         if is_multi:
@@ -1863,33 +1909,41 @@ def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False):
             has_outer_s1 = is_first_lens
             has_outer_s2 = is_last_lens
 
+            # 合并逐页覆盖参数
+            lens_settings = settings.copy()
+            frontend_page_idx = i + 1
+            page_ov = page_overrides.get(frontend_page_idx, page_overrides.get(str(frontend_page_idx), {}))
+            if page_ov:
+                lens_settings.update(page_ov)
+
             proc_params = {
                 "part_name": "" if is_multi else cemented_data.part_name,
                 "part_no": "" if is_multi else cemented_data.part_no,
                 "glass_name": lens.glass,
-                "proc_c_single": settings.get("proc_c_single", "60\u2033"),
-                "proc_b": settings.get("proc_surface_defect", "60/40"),
-                "N_mode": settings.get("proc_N_mode", "auto"),
-                "N_manual": settings.get("proc_N_manual", "1.5"),
-                "DN": settings.get("proc_DN", "0.3"),
-                "signature": settings.get("proc_signature", "l.y.h"),
-                "coat_s1_wave1": settings.get("coat_s1_wave1", "420-680") if has_outer_s1 else "",
-                "coat_s1_wave2": settings.get("coat_s1_wave2", "850/940") if has_outer_s1 else "",
-                "coat_s2_wave1": settings.get("coat_s2_wave1", "420-680") if has_outer_s2 else "",
-                "coat_s2_wave2": settings.get("coat_s2_wave2", "850/940") if has_outer_s2 else "",
-                "coat_s1_ravg1": settings.get("coat_s1_ravg1", "0.5") if has_outer_s1 else "",
-                "coat_s1_ravg2": settings.get("coat_s1_ravg2", "1") if has_outer_s1 else "",
-                "coat_s2_ravg1": settings.get("coat_s2_ravg1", "0.5") if has_outer_s2 else "",
-                "coat_s2_ravg2": settings.get("coat_s2_ravg2", "1") if has_outer_s2 else "",
-                "coat_s1_angle1": settings.get("coat_s1_angle1", "0-22") if has_outer_s1 else "",
-                "coat_s1_angle2": settings.get("coat_s1_angle2", "0-22") if has_outer_s1 else "",
-                "coat_s2_angle1": settings.get("coat_s2_angle1", "0-22") if has_outer_s2 else "",
-                "coat_s2_angle2": settings.get("coat_s2_angle2", "0-22") if has_outer_s2 else "",
+                "proc_c_single": lens_settings.get("proc_c_single", "60\u2033"),
+                "proc_b": lens_settings.get("proc_surface_defect", "60/40"),
+                "N_mode": lens_settings.get("proc_N_mode", "auto"),
+                "N_manual": lens_settings.get("proc_N_manual", "1.5"),
+                "DN": lens_settings.get("proc_DN", "0.3"),
+                "signature": lens_settings.get("proc_signature", "l.y.h"),
+                "proc_ranking": lens_settings.get("proc_ranking", "01"),
+                "coat_s1_wave1": lens_settings.get("coat_s1_wave1", "420-680") if has_outer_s1 else "",
+                "coat_s1_wave2": lens_settings.get("coat_s1_wave2", "850/940") if has_outer_s1 else "",
+                "coat_s2_wave1": lens_settings.get("coat_s2_wave1", "420-680") if has_outer_s2 else "",
+                "coat_s2_wave2": lens_settings.get("coat_s2_wave2", "850/940") if has_outer_s2 else "",
+                "coat_s1_ravg1": lens_settings.get("coat_s1_ravg1", "0.5") if has_outer_s1 else "",
+                "coat_s1_ravg2": lens_settings.get("coat_s1_ravg2", "1") if has_outer_s1 else "",
+                "coat_s2_ravg1": lens_settings.get("coat_s2_ravg1", "0.5") if has_outer_s2 else "",
+                "coat_s2_ravg2": lens_settings.get("coat_s2_ravg2", "1") if has_outer_s2 else "",
+                "coat_s1_angle1": lens_settings.get("coat_s1_angle1", "0-22") if has_outer_s1 else "",
+                "coat_s1_angle2": lens_settings.get("coat_s1_angle2", "0-22") if has_outer_s1 else "",
+                "coat_s2_angle1": lens_settings.get("coat_s2_angle1", "0-22") if has_outer_s2 else "",
+                "coat_s2_angle2": lens_settings.get("coat_s2_angle2", "0-22") if has_outer_s2 else "",
                 "is_cemented_single": is_multi,
                 "has_outer_s1": has_outer_s1,
                 "has_outer_s2": has_outer_s2,
             }
-            chamfer_mode = proc_params.get("chamfer_mode", settings.get("chamfer_mode", "auto"))
+            chamfer_mode = lens_settings.get("chamfer_mode", "auto")
             if chamfer_mode == "auto":
                 from config import auto_chamfer_by_dia
                 if is_multi:
@@ -1898,29 +1952,31 @@ def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False):
                 else:
                     cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
             else:
-                cL = proc_params.get("chamfer_left", settings.get("chamfer_left", 0.2))
-                cR = proc_params.get("chamfer_right", settings.get("chamfer_right", 0.4))
-            cemented_ref = int(settings.get("cemented_ref_lens", 2))
+                cL = lens_settings.get("chamfer_left", 0.2)
+                cR = lens_settings.get("chamfer_right", 0.4)
+            cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
             ref_index = cemented_ref - 1
             if is_multi and i != ref_index:
-                single_dia_upper = settings.get("dia_tol_nonpos_upper", 0.05)
-                single_dia_lower = settings.get("dia_tol_nonpos_lower", 0.10)
+                single_dia_upper = lens_settings.get("dia_tol_nonpos_upper", 0.05)
+                single_dia_lower = lens_settings.get("dia_tol_nonpos_lower", 0.10)
             else:
-                single_dia_upper = settings.get("dia_tol_pos_upper", settings.get("dia_tol_upper", 0.010))
-                single_dia_lower = settings.get("dia_tol_pos_lower", settings.get("dia_tol_lower", 0.025))
+                single_dia_upper = lens_settings.get("dia_tol_pos_upper", lens_settings.get("dia_tol_upper", 0.010))
+                single_dia_lower = lens_settings.get("dia_tol_pos_lower", lens_settings.get("dia_tol_lower", 0.025))
+            _ca_ratio = lens_settings.get("ca_ratio", 0.94)
+            ca1_i, ca2_i = _resolve_cemented_ca(lens_settings, i, _ca_ratio)
             fig_s = _build_single_page_figure(
                 lens.T, lens.R_left, lens.R_right, lens.MD, lens.AD_left, lens.AD_right,
-                settings.get("J_multiplier", 0.10),
-                settings.get("ct_offset_J", 3.0), settings.get("et_offset_J", 2.0),
-                settings.get("sag_offset_J", 3.0), settings.get("dia_offset_J", 3.0),
-                settings.get("ad_offset_J", 2.0), settings.get("spray_gap_J", 0.1),
+                lens_settings.get("J_multiplier", 0.10),
+                lens_settings.get("ct_offset_J", 3.0), lens_settings.get("et_offset_J", 2.0),
+                lens_settings.get("sag_offset_J", 3.0), lens_settings.get("dia_offset_J", 3.0),
+                lens_settings.get("ad_offset_J", 2.0), lens_settings.get("spray_gap_J", 0.1),
                 cL, cR,
-                settings.get("t_tol", 0.02), settings.get("sag_tol", 0.02),
-                settings.get("font_size", 9), settings.get("arrow_scale", 1.0),
-                settings.get("r_offset_J", 0.8),
+                lens_settings.get("t_tol", 0.02), lens_settings.get("sag_tol", 0.02),
+                lens_settings.get("font_size", 9), lens_settings.get("arrow_scale", 1.0),
+                lens_settings.get("r_offset_J", 0.8),
                 single_dia_upper, single_dia_lower,
-                proc_params, settings,
-                ca1=None, ca2=None,
+                proc_params, lens_settings,
+                ca1=ca1_i, ca2=ca2_i,
                 page_no=page_no, total_pages=total_pages,
                 hide_partname=hide_partname,
             )

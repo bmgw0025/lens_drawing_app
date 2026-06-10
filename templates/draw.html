@@ -281,7 +281,7 @@
         <!-- CA (净口径) -->
         <div class="param-row">
           <label>CA 模式
-            <span class="tooltip-trigger" title="CA = floor(系数 × AD, 一位小数)，例如 AD=92, 系数=0.98 → CA=90.1" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
+            <span class="tooltip-trigger" title="CA = floor(系数 × AD, 一位小数)，例如 AD=92, 系数=0.94 → CA=86.4" style="cursor:help; display:inline-flex; align-items:center; vertical-align:middle; margin-left:2px;"><svg width="13" height="13" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#e8eaed"/><path d="M12 6.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 11v6" fill="none" stroke="#5f6368" stroke-width="2" stroke-linecap="round"/></svg></span>
           </label>
           <select id="CA_mode" style="flex:1;">
             <option value="auto">自动计算</option>
@@ -290,7 +290,7 @@
         </div>
         <div class="param-row" id="ca-ratio-row">
           <label>CA 系数</label>
-          <input type="number" step="0.01" min="0.5" max="1.0" id="ca_ratio" value="0.98">
+          <input type="number" step="0.01" min="0.5" max="1.0" id="ca_ratio" value="0.94">
         </div>
         <div class="param-row ca-manual-row" id="ca1-manual-row" style="display:none;">
           <label>CA1 (左净口径)</label>
@@ -299,6 +299,59 @@
         <div class="param-row ca-manual-row" id="ca2-manual-row" style="display:none;">
           <label>CA2 (右净口径)</label>
           <input type="number" step="0.01" id="CA2" value="13.00">
+        </div>
+
+        <!-- 胶合镜片逐片 CA 手动输入区 -->
+        <div id="cemented-ca-section" style="display:none;">
+          <div style="font-size:11px; color:#666; margin:4px 0 2px; padding-left:2px;">胶合镜片逐片 CA 设置</div>
+          <!-- 第1片 -->
+          <div class="param-row">
+            <label>镜片1 CA模式</label>
+            <select id="ca_mode_1" style="flex:1;">
+              <option value="auto">自动计算</option>
+              <option value="manual">手动输入</option>
+            </select>
+          </div>
+          <div class="param-row cemented-ca-manual" id="ca-1-left-row" style="display:none;">
+            <label>镜片1 CA左</label>
+            <input type="number" step="0.01" id="ca_1_left" value="">
+          </div>
+          <div class="param-row cemented-ca-manual" id="ca-1-right-row" style="display:none;">
+            <label>镜片1 CA右</label>
+            <input type="number" step="0.01" id="ca_1_right" value="">
+          </div>
+          <!-- 第2片 -->
+          <div class="param-row">
+            <label>镜片2 CA模式</label>
+            <select id="ca_mode_2" style="flex:1;">
+              <option value="auto">自动计算</option>
+              <option value="manual">手动输入</option>
+            </select>
+          </div>
+          <div class="param-row cemented-ca-manual" id="ca-2-left-row" style="display:none;">
+            <label>镜片2 CA左</label>
+            <input type="number" step="0.01" id="ca_2_left" value="">
+          </div>
+          <div class="param-row cemented-ca-manual" id="ca-2-right-row" style="display:none;">
+            <label>镜片2 CA右</label>
+            <input type="number" step="0.01" id="ca_2_right" value="">
+          </div>
+          <!-- 第3片（三胶合专用） -->
+          <div class="param-row lens3-field">
+            <label>镜片3 CA模式</label>
+            <select id="ca_mode_3" style="flex:1;">
+              <option value="auto">自动计算</option>
+              <option value="manual">手动输入</option>
+            </select>
+          </div>
+          <div class="param-row cemented-ca-manual lens3-field" id="ca-3-left-row" style="display:none;">
+            <label>镜片3 CA左</label>
+            <input type="number" step="0.01" id="ca_3_left" value="">
+          </div>
+          <div class="param-row cemented-ca-manual lens3-field" id="ca-3-right-row" style="display:none;">
+            <label>镜片3 CA右</label>
+            <input type="number" step="0.01" id="ca_3_right" value="">
+          </div>
         </div>
 
         <div class="card-divider"></div>

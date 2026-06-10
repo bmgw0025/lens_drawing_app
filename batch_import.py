@@ -45,6 +45,7 @@ class CementedLensData:
     save_pdf_folder: str = "Save PDF"
     mfr_pdf_folder: str = "Mfr PDF"
     proc_overrides: Optional[Dict[str, Any]] = None  # 逐行加工参数覆盖 {key: value}
+    page_overrides: Optional[Dict[str, Any]] = None  # 逐页加工参数覆盖 {pageIndex: {key: value}}
 
     @property
     def lens_type(self) -> str:

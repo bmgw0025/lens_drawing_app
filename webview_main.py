@@ -146,6 +146,28 @@ def _fatal_error(context, exc):
         pass
 
 
+def _set_window_icon(window, icon_path):
+    """通过 Win32 API 设置窗口图标（仅 Windows）。"""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        WM_SETICON = 0x0080
+        ICON_SMALL = 0
+        ICON_BIG = 1
+        LR_LOADFROMFILE = 0x00000010
+        IMAGE_ICON = 1
+        hwnd = getattr(window, 'hwnd', None)
+        if not hwnd:
+            return
+        icon = user32.LoadImageW(0, icon_path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+        if icon:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, icon)
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, icon)
+            log(f"Window icon set from {icon_path}")
+    except Exception as e:
+        log(f"Failed to set window icon: {e}")
+
+
 def main():
     log("Starting up...")
 
@@ -194,6 +216,10 @@ def main():
             js_api=api,
         )
         api._window = window
+        # 设置窗口图标
+        icon_path = os.path.join(PROJECT_ROOT, "icon.ico")
+        if os.path.exists(icon_path):
+            _set_window_icon(window, icon_path)
         log("Starting GUI event loop...")
         webview.start(debug=False)
         log("GUI loop ended")
