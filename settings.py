@@ -10,7 +10,7 @@ SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_se
 DEFAULT_SETTINGS = {
     "J_multiplier": 0.10,
     "font_size": 9,
-    "arrow_scale": 1.0,
+    "arrow_scale": 0.3,
     "ct_offset_J": 10.0,
     "et_offset_J": 8.0,
     "sag_offset_J": 8.0,
@@ -45,19 +45,19 @@ DEFAULT_SETTINGS = {
     "coat_preset": "SQ-A1",
     # 镀膜波段默认值
     "coat_s1_wave1": "420-680",
-    "coat_s1_wave2": "850/940",
+    "coat_s1_wave2": "680-850",
     "coat_s2_wave1": "420-680",
-    "coat_s2_wave2": "850/940",
+    "coat_s2_wave2": "680-850",
     # 反射率默认值
-    "coat_s1_ravg1": "0.5",
-    "coat_s1_ravg2": "1",
-    "coat_s2_ravg1": "0.5",
-    "coat_s2_ravg2": "1",
+    "coat_s1_ravg1": "0.4",
+    "coat_s1_ravg2": "0.8",
+    "coat_s2_ravg1": "0.4",
+    "coat_s2_ravg2": "0.8",
     # 透过角度默认值
-    "coat_s1_angle1": "0-22",
-    "coat_s1_angle2": "0-22",
-    "coat_s2_angle1": "0-22",
-    "coat_s2_angle2": "0-22",
+    "coat_s1_angle1": "0-15",
+    "coat_s1_angle2": "0-15",
+    "coat_s2_angle1": "0-15",
+    "coat_s2_angle2": "0-15",
     # CA自动计算系数
     "ca_ratio": 0.94,
 }
@@ -84,6 +84,17 @@ def load_settings():
 
 
 def save_settings(settings):
-    """Save settings to JSON file."""
+    """Save settings to JSON file.
+    Applies type coercion to ensure critical keys match DEFAULT_SETTINGS types.
+    """
+    coerced = settings.copy()
+    # 确保 cemented_ref_lens 为整数
+    try:
+        coerced["cemented_ref_lens"] = int(coerced.get("cemented_ref_lens", DEFAULT_SETTINGS["cemented_ref_lens"]))
+    except (ValueError, TypeError):
+        coerced["cemented_ref_lens"] = DEFAULT_SETTINGS["cemented_ref_lens"]
+    # 确保 proc_N_manual 为字符串
+    n_manual = coerced.get("proc_N_manual", DEFAULT_SETTINGS["proc_N_manual"])
+    coerced["proc_N_manual"] = str(n_manual)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+        json.dump(coerced, f, indent=2, ensure_ascii=False)

@@ -22,9 +22,11 @@ def validate(T, R1, R2, MD, AD1, AD2):
         errors.append("AD1 and AD2 must be greater than 0")
     if AD1 > MD or AD2 > MD:
         errors.append("AD cannot exceed MD")
-    if abs(R1) > 0 and abs(R1) <= AD1 / 2.0:
+    # R=0 means plano surface (flat), which is valid — skip arc validation
+    # Treat near-zero R (< 1e-9) as exactly plano to avoid geometry issues
+    if abs(R1) > 1e-9 and abs(R1) <= AD1 / 2.0:
         errors.append("|R1| must be greater than AD1/2 for valid arc")
-    if abs(R2) > 0 and abs(R2) <= AD2 / 2.0:
+    if abs(R2) > 1e-9 and abs(R2) <= AD2 / 2.0:
         errors.append("|R2| must be greater than AD2/2 for valid arc")
     return errors
 

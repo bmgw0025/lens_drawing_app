@@ -3,7 +3,7 @@
 ; 配合 build_v5.py 生成的 LensDrawing_v5 目录使用
 
 #define MyAppName "LensDrawing"
-#define MyAppVersion "3.2"
+#define MyAppVersion "3.3"
 #define MyAppPublisher "Lens Drawing Tool Team"
 #define MyAppExeName "LensDrawing.exe"
 ; 源文件路径 - build_v5.py 输出目录

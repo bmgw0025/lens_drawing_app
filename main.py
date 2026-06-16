@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lens Drawing Tool v3.1"""
+"""Lens Drawing Tool v3.3"""
 import sys,os,math,io
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import matplotlib
@@ -181,21 +181,6 @@ def _ann_ct(ax,T,J,offset_J,t_tol,font_size,arrow_scale):
     ax.plot([T,T],[0,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([0,T],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([T,text_x+J*6],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
-    # 左侧向外延伸0.5J引线
-    ax.plot([-J*0.5,0],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
-    aw=J*0.6*arrow_scale
-    _arrow(ax,-aw,y_ext,0,y_ext,hs=aw)
-    _arrow(ax,T+aw,y_ext,T,y_ext,hs=aw)
-    ax.text(text_x,y_ext+font_size*0.01,text_str,ha="left",va="bottom",fontsize=font_size,color="black",zorder=7)
-
-# 底部总长标注：在镜片底部画水平尺寸线，标注总长度T
-def _ann_total_length(ax,T,J,font_size,arrow_scale,t_tol=0.02):
-    y_ext=-J*12.0  # 在表格上方，Sag标注下方
-    text_str=f"{T:.2f}\u00b1{t_tol:.2f}"
-    text_x=T+J*2.5
-    ax.plot([0,0],[0,y_ext],"k-",lw=0.8,zorder=5)
-    ax.plot([T,T],[0,y_ext],"k-",lw=0.8,zorder=5)
-    ax.plot([0,T],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     # 左侧向外延伸0.5J引线
     ax.plot([-J*0.5,0],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     aw=J*0.6*arrow_scale
@@ -426,7 +411,7 @@ def _calc_spray_points(B, C, E, F, dy_off):
     if not fe_exists:
         sp_f = (F[0], F[1]+dy_off)
     else:
-        sp_f = (F[0]+dy_off, C[1]+dy_off)
+        sp_f = (F[0]+dy_off, F[1]+dy_off)
     sp_e = (E[0]+dy_off, E[1]) if fe_exists else None
     return [sp_b, sp_c, sp_f, sp_e], bc_exists, fe_exists
 
@@ -619,19 +604,19 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     var_rnk= s("proc_ranking","01")
     # 镀膜波段
     w_s1_1=proc_params.get("coat_s1_wave1","420-680")
-    w_s1_2=proc_params.get("coat_s1_wave2","850/940")
+    w_s1_2=proc_params.get("coat_s1_wave2","680-850")
     w_s2_1=proc_params.get("coat_s2_wave1","420-680")
-    w_s2_2=proc_params.get("coat_s2_wave2","850/940")
+    w_s2_2=proc_params.get("coat_s2_wave2","680-850")
     # 反射率
-    r_s1_1=proc_params.get("coat_s1_ravg1","0.5")
-    r_s1_2=proc_params.get("coat_s1_ravg2","1")
-    r_s2_1=proc_params.get("coat_s2_ravg1","0.5")
-    r_s2_2=proc_params.get("coat_s2_ravg2","1")
+    r_s1_1=proc_params.get("coat_s1_ravg1","0.4")
+    r_s1_2=proc_params.get("coat_s1_ravg2","0.8")
+    r_s2_1=proc_params.get("coat_s2_ravg1","0.4")
+    r_s2_2=proc_params.get("coat_s2_ravg2","0.8")
     # 角度
-    a_s1_1=proc_params.get("coat_s1_angle1","0-22")
-    a_s1_2=proc_params.get("coat_s1_angle2","0-22")
-    a_s2_1=proc_params.get("coat_s2_angle1","0-22")
-    a_s2_2=proc_params.get("coat_s2_angle2","0-22")
+    a_s1_1=proc_params.get("coat_s1_angle1","0-15")
+    a_s1_2=proc_params.get("coat_s1_angle2","0-15")
+    a_s2_1=proc_params.get("coat_s2_angle1","0-15")
+    a_s2_2=proc_params.get("coat_s2_angle2","0-15")
 
     # ====================== 页面初始化 ======================
     fig = Figure(figsize=(11.69, 8.27), dpi=300)  # 11.69*100=1169, 8.27*100=827, closest integer pixels to A4 ratio
@@ -1651,9 +1636,36 @@ def extract_field_positions(fig, dpi=100):
     return positions
 
 
+
+def _resolve_cemented_chamfer(settings, lens_index):
+    """Return (cL, cR) - None means use auto calculation.
+    Reads chamfer_mode_N / chamfer_N_left / chamfer_N_right from settings.
+    If no per-lens setting, falls back to global chamfer_mode/chamfer_left/chamfer_right.
+    """
+    mode = settings.get(f"chamfer_mode_{lens_index + 1}", "auto")
+    if mode == "manual":
+        left = settings.get(f"chamfer_{lens_index + 1}_left")
+        right = settings.get(f"chamfer_{lens_index + 1}_right")
+        cL = float(left) if left not in (None, "") else None
+        cR = float(right) if right not in (None, "") else None
+    else:
+        cL = cR = None
+
+    # Fallback: 批量出图模块使用单镜片全局 chamfer_mode/chamfer_left/chamfer_right 键
+    if cL is None and cR is None:
+        global_mode = settings.get("chamfer_mode", "auto")
+        if global_mode == "manual":
+            left = settings.get("chamfer_left")
+            right = settings.get("chamfer_right")
+            cL = float(left) if left not in (None, "") else None
+            cR = float(right) if right not in (None, "") else None
+
+    return cL, cR
+
 def _resolve_cemented_ca(settings, lens_index, ca_ratio):
     """返回 (ca1, ca2) — None 表示使用自动计算。
     根据 settings 中的 ca_mode_N / ca_N_left / ca_N_right 字段决定。
+    若无逐片设置，回退到单镜片全局 CA_mode / CA1 / CA2 字段。
     """
     mode = settings.get(f"ca_mode_{lens_index + 1}", "auto")
     if mode == "manual":
@@ -1663,6 +1675,16 @@ def _resolve_cemented_ca(settings, lens_index, ca_ratio):
         ca2 = float(right) if right not in (None, "") else None
     else:
         ca1 = ca2 = None
+
+    # Fallback: 批量出图模块使用单镜片全局 CA_mode/CA1/CA2 键
+    if ca1 is None and ca2 is None:
+        global_mode = settings.get("CA_mode", "auto")
+        if global_mode == "manual":
+            left = settings.get("CA1")
+            right = settings.get("CA2")
+            ca1 = float(left) if left not in (None, "") else None
+            ca2 = float(right) if right not in (None, "") else None
+
     return ca1, ca2
 
 
@@ -1734,13 +1756,17 @@ def build_cemented_preview_figures(cemented_data, settings, page_overrides=None)
             "coat_preset": lens_settings.get("coat_preset", "Custom"),
         }
 
-        chamfer_mode = lens_settings.get("chamfer_mode", "auto")
-        if chamfer_mode == "auto":
-            c_val = auto_chamfer_by_dia(lens.MD)
-            cL, cR = c_val, c_val
+        cL_per, cR_per = _resolve_cemented_chamfer(lens_settings, i)
+        if cL_per is not None and cR_per is not None:
+            cL, cR = cL_per, cR_per
         else:
-            cL = lens_settings.get("chamfer_left", 0.2)
-            cR = lens_settings.get("chamfer_right", 0.4)
+            chamfer_mode = lens_settings.get("chamfer_mode", "auto")
+            if chamfer_mode == "auto":
+                c_val = auto_chamfer_by_dia(lens.MD)
+                cL, cR = c_val, c_val
+            else:
+                cL = lens_settings.get("chamfer_left", 0.2)
+                cR = lens_settings.get("chamfer_right", 0.4)
 
         cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
         ref_index = cemented_ref - 1
@@ -1825,33 +1851,37 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
                 "signature": lens_settings.get("proc_signature","l.y.h"),
                 "proc_ranking": lens_settings.get("proc_ranking", "01"),
                 "coat_s1_wave1": lens_settings.get("coat_s1_wave1","420-680") if has_outer_s1 else "",
-                "coat_s1_wave2": lens_settings.get("coat_s1_wave2","850/940") if has_outer_s1 else "",
+                "coat_s1_wave2": lens_settings.get("coat_s1_wave2","680-850") if has_outer_s1 else "",
                 "coat_s2_wave1": lens_settings.get("coat_s2_wave1","420-680") if has_outer_s2 else "",
-                "coat_s2_wave2": lens_settings.get("coat_s2_wave2","850/940") if has_outer_s2 else "",
-                "coat_s1_ravg1": lens_settings.get("coat_s1_ravg1","0.5") if has_outer_s1 else "",
-                "coat_s1_ravg2": lens_settings.get("coat_s1_ravg2","1") if has_outer_s1 else "",
-                "coat_s2_ravg1": lens_settings.get("coat_s2_ravg1","0.5") if has_outer_s2 else "",
-                "coat_s2_ravg2": lens_settings.get("coat_s2_ravg2","1") if has_outer_s2 else "",
-                "coat_s1_angle1": lens_settings.get("coat_s1_angle1","0-22") if has_outer_s1 else "",
-                "coat_s1_angle2": lens_settings.get("coat_s1_angle2","0-22") if has_outer_s1 else "",
-                "coat_s2_angle1": lens_settings.get("coat_s2_angle1","0-22") if has_outer_s2 else "",
-                "coat_s2_angle2": lens_settings.get("coat_s2_angle2","0-22") if has_outer_s2 else "",
+                "coat_s2_wave2": lens_settings.get("coat_s2_wave2","680-850") if has_outer_s2 else "",
+                "coat_s1_ravg1": lens_settings.get("coat_s1_ravg1","0.4") if has_outer_s1 else "",
+                "coat_s1_ravg2": lens_settings.get("coat_s1_ravg2","0.8") if has_outer_s1 else "",
+                "coat_s2_ravg1": lens_settings.get("coat_s2_ravg1","0.4") if has_outer_s2 else "",
+                "coat_s2_ravg2": lens_settings.get("coat_s2_ravg2","0.8") if has_outer_s2 else "",
+                "coat_s1_angle1": lens_settings.get("coat_s1_angle1","0-15") if has_outer_s1 else "",
+                "coat_s1_angle2": lens_settings.get("coat_s1_angle2","0-15") if has_outer_s1 else "",
+                "coat_s2_angle1": lens_settings.get("coat_s2_angle1","0-15") if has_outer_s2 else "",
+                "coat_s2_angle2": lens_settings.get("coat_s2_angle2","0-15") if has_outer_s2 else "",
                 "is_cemented_single": is_multi,
                 "has_outer_s1": has_outer_s1,
                 "has_outer_s2": has_outer_s2,
                 "coat_preset": lens_settings.get("coat_preset", "Custom"),
             }
             # 倒角计算
-            chamfer_mode = lens_settings.get("chamfer_mode","auto")
-            if chamfer_mode == "auto":
-                if is_multi:
-                    c_val = auto_chamfer_by_dia(lens.MD)
-                    cL, cR = c_val, c_val
-                else:
-                    cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
+            cL_per, cR_per = _resolve_cemented_chamfer(lens_settings, i)
+            if cL_per is not None and cR_per is not None:
+                cL, cR = cL_per, cR_per
             else:
-                cL = lens_settings.get("chamfer_left",0.2)
-                cR = lens_settings.get("chamfer_right",0.4)
+                chamfer_mode = lens_settings.get("chamfer_mode","auto")
+                if chamfer_mode == "auto":
+                    if is_multi:
+                        c_val = auto_chamfer_by_dia(lens.MD)
+                        cL, cR = c_val, c_val
+                    else:
+                        cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
+                else:
+                    cL = lens_settings.get("chamfer_left",0.2)
+                    cR = lens_settings.get("chamfer_right",0.4)
             # 胶合单片直径公差：定位镜片用定位公差，其余用非定位公差
             cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
             ref_index = cemented_ref - 1
@@ -1942,18 +1972,23 @@ def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False, page_
                 "is_cemented_single": is_multi,
                 "has_outer_s1": has_outer_s1,
                 "has_outer_s2": has_outer_s2,
+                "coat_preset": lens_settings.get("coat_preset", "Custom"),
             }
-            chamfer_mode = lens_settings.get("chamfer_mode", "auto")
-            if chamfer_mode == "auto":
-                from config import auto_chamfer_by_dia
-                if is_multi:
-                    c_val = auto_chamfer_by_dia(lens.MD)
-                    cL, cR = c_val, c_val
-                else:
-                    cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
+            cL_per, cR_per = _resolve_cemented_chamfer(lens_settings, i)
+            if cL_per is not None and cR_per is not None:
+                cL, cR = cL_per, cR_per
             else:
-                cL = lens_settings.get("chamfer_left", 0.2)
-                cR = lens_settings.get("chamfer_right", 0.4)
+                chamfer_mode = lens_settings.get("chamfer_mode", "auto")
+                if chamfer_mode == "auto":
+                    from config import auto_chamfer_by_dia
+                    if is_multi:
+                        c_val = auto_chamfer_by_dia(lens.MD)
+                        cL, cR = c_val, c_val
+                    else:
+                        cL, cR = auto_chamfer(lens.MD, lens.R_left, lens.R_right)
+                else:
+                    cL = lens_settings.get("chamfer_left", 0.2)
+                    cR = lens_settings.get("chamfer_right", 0.4)
             cemented_ref = int(lens_settings.get("cemented_ref_lens", 2))
             ref_index = cemented_ref - 1
             if is_multi and i != ref_index:

@@ -744,7 +744,7 @@ async function openProcModal(tr) {
 
   const caMode = g('CA_mode','auto');  // Note: draw module uses CA_mode, settings has ca_ratio only
   setVal('proc_modal_ca_mode', caMode);
-  gs('proc_modal_ca_ratio','ca_ratio','0.98');
+  gs('proc_modal_ca_ratio','ca_ratio','0.94');
   gs('proc_modal_CA1','CA1','');
   gs('proc_modal_CA2','CA2','');
 
@@ -756,6 +756,7 @@ async function openProcModal(tr) {
   gs('proc_modal_np_lo','dia_tol_nonpos_lower','0.10');
   setVal('proc_modal_ref', g('cemented_ref_lens','2'));
 
+  gs('proc_modal_coat_preset','coat_preset','SQ-A1');
   gs('proc_modal_s1_w1','coat_s1_wave1','420-680');
   gs('proc_modal_s1_w2','coat_s1_wave2','850/940');
   gs('proc_modal_s1_r1','coat_s1_ravg1','0.5');
@@ -837,6 +838,7 @@ document.getElementById('btn-proc-save').addEventListener('click', () => {
     'proc_modal_N_mode': 'proc_N_mode', 'proc_modal_ch_mode': 'chamfer_mode',
     'proc_modal_ca_mode': 'CA_mode', 'proc_modal_ranking': 'proc_ranking',
     'proc_modal_ref': 'cemented_ref_lens',
+    'proc_modal_coat_preset': 'coat_preset',
   };
 
   for (const [elId, key] of Object.entries(fields)) {
@@ -1010,6 +1012,11 @@ function saveSession() {
     sessionStorage.setItem('batch_session', JSON.stringify({ rows, toolbar }));
   } catch (e) {
     console.warn('Session save failed:', e.message);
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      showToast('会话数据过大，无法保存。请减少行数后重试', 'error');
+    } else {
+      showToast('会话保存失败: ' + e.message, 'error');
+    }
   }
 }
 

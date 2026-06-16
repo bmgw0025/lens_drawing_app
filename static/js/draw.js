@@ -369,18 +369,21 @@ function updateLensTypeUI() {
   const singleCa1 = document.getElementById('ca1-manual-row');
   const singleCa2 = document.getElementById('ca2-manual-row');
   const cementedCaSection = document.getElementById('cemented-ca-section');
+  const cementedChamferSection = document.getElementById('cemented-chamfer-section');
   if (type === 'single') {
     // 显示单片 CA 控件
     if (singleCaMode) singleCaMode.closest('.param-row').style.display = 'flex';
     updateCAInputs();
     if (cementedCaSection) cementedCaSection.style.display = 'none';
+    if (cementedChamferSection) cementedChamferSection.style.display = 'none';
   } else {
     // 隐藏单片 CA 手动行，显示胶合 CA 区域
     if (singleCa1) singleCa1.style.display = 'none';
     if (singleCa2) singleCa2.style.display = 'none';
     if (cementedCaSection) cementedCaSection.style.display = 'block';
+    if (cementedChamferSection) cementedChamferSection.style.display = 'block';
     // 更新逐片 CA 模式显示
-    for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
+    for (let i = 1; i <= 3; i++) { updateCementedCAMode(i); updateCementedChamferMode(i); }
   }
   // Dynamically rebuild options: doublet → 1/2, triplet → 1/2/3
   if (refSelect && type !== 'single') {
@@ -498,6 +501,17 @@ function collectParams() {
     ca_mode_3: getVal('ca_mode_3'),
     ca_3_left: getVal('ca_3_left'),
     ca_3_right: getVal('ca_3_right'),
+
+    // 胶合镜片逐片倒角手动输入
+    chamfer_mode_1: getVal('chamfer_mode_1'),
+    chamfer_1_left: getVal('chamfer_1_left'),
+    chamfer_1_right: getVal('chamfer_1_right'),
+    chamfer_mode_2: getVal('chamfer_mode_2'),
+    chamfer_2_left: getVal('chamfer_2_left'),
+    chamfer_2_right: getVal('chamfer_2_right'),
+    chamfer_mode_3: getVal('chamfer_mode_3'),
+    chamfer_3_left: getVal('chamfer_3_left'),
+    chamfer_3_right: getVal('chamfer_3_right'),
   };
 }
 
@@ -548,6 +562,9 @@ async function refreshPreview() {
             ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
             ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
             ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+            chamfer_mode_1: params.chamfer_mode_1, chamfer_1_left: params.chamfer_1_left, chamfer_1_right: params.chamfer_1_right,
+            chamfer_mode_2: params.chamfer_mode_2, chamfer_2_left: params.chamfer_2_left, chamfer_2_right: params.chamfer_2_right,
+            chamfer_mode_3: params.chamfer_mode_3, chamfer_3_left: params.chamfer_3_left, chamfer_3_right: params.chamfer_3_right,
             page_overrides: pageOverrides,
           }),
         });
@@ -625,6 +642,9 @@ async function doExport(fullpath) {
           ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
           ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
           ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+          chamfer_mode_1: params.chamfer_mode_1, chamfer_1_left: params.chamfer_1_left, chamfer_1_right: params.chamfer_1_right,
+          chamfer_mode_2: params.chamfer_mode_2, chamfer_2_left: params.chamfer_2_left, chamfer_2_right: params.chamfer_2_right,
+          chamfer_mode_3: params.chamfer_mode_3, chamfer_3_left: params.chamfer_3_left, chamfer_3_right: params.chamfer_3_right,
           page_overrides: pageOverrides,
         }),
       });
@@ -681,22 +701,38 @@ async function chooseSavePath() {
 }
 
 /* ── Reset ── */
-function resetParams() {
+async function resetParams() {
+  // Fetch geometry defaults from backend to stay in sync with config.py DEFAULTS
+  let geometryDefaults = {};
+  try {
+    const res = await fetch('/api/defaults');
+    if (res.ok) {
+      const data = await res.json();
+      geometryDefaults = {
+        T: String(data.T), R1: String(data.R1), R2: String(data.R2),
+        MD: String(data.MD), AD1: String(data.AD1), AD2: String(data.AD2),
+        CA1: String((data.AD1 * 0.94).toFixed(2)),
+        CA2: String((data.AD2 * 0.94).toFixed(2)),
+      };
+    }
+  } catch (e) {
+    console.warn('获取默认参数失败，使用本地默认值');
+  }
   const defaults = {
     T: '5.4', R1: '35.406', R2: '-35.259', MD: '13.5',
     AD1: '13.5', AD2: '13.5',
     CA1: '13.00', CA2: '13.00',
     CA_mode: 'auto', ca_ratio: '0.94',
     part_name: 'singlelen', part_no: '100.2.00888', glass_name: 'H-FK61B',
-    glass2: 'H-ZLAF55D', T2: '1.4', R3: '147.008', MD2: '13.5', AD3: '12',
-    glass3: 'H-ZF11', T3: '3', R4: '-147.008', MD3: '12', AD4: '12',
+    glass2: '', T2: '', R3: '', MD2: '', AD3: '',
+    glass3: '', T3: '', R4: '', MD3: '', AD4: '',
     coat_preset: 'SQ-A1',
-    coat_s1_wave1: '420-680', coat_s1_wave2: '850/940',
-    coat_s2_wave1: '420-680', coat_s2_wave2: '850/940',
-    coat_s1_ravg1: '0.5', coat_s1_ravg2: '1',
-    coat_s2_ravg1: '0.5', coat_s2_ravg2: '1',
-    coat_s1_angle1: '0-22', coat_s1_angle2: '0-22',
-    coat_s2_angle1: '0-22', coat_s2_angle2: '0-22',
+    coat_s1_wave1: '420-680', coat_s1_wave2: '680-850',
+    coat_s2_wave1: '420-680', coat_s2_wave2: '680-850',
+    coat_s1_ravg1: '0.4', coat_s1_ravg2: '0.8',
+    coat_s2_ravg1: '0.4', coat_s2_ravg2: '0.8',
+    coat_s1_angle1: '0-15', coat_s1_angle2: '0-15',
+    coat_s2_angle1: '0-15', coat_s2_angle2: '0-15',
     proc_c_single: '60″', proc_c_assembly: '60″',
     proc_b: '60/40', proc_ranking: '01', signature: 'l.y.h',
     N_mode: 'auto', N_manual: '1.5', DN: '0.3',
@@ -708,9 +744,14 @@ function resetParams() {
     ca_mode_1: 'auto', ca_1_left: '', ca_1_right: '',
     ca_mode_2: 'auto', ca_2_left: '', ca_2_right: '',
     ca_mode_3: 'auto', ca_3_left: '', ca_3_right: '',
+    chamfer_mode_1: 'auto', chamfer_1_left: '', chamfer_1_right: '',
+    chamfer_mode_2: 'auto', chamfer_2_left: '', chamfer_2_right: '',
+    chamfer_mode_3: 'auto', chamfer_3_left: '', chamfer_3_right: '',
   };
 
-  for (const [id, val] of Object.entries(defaults)) {
+  const merged = { ...defaults, ...geometryDefaults };
+
+  for (const [id, val] of Object.entries(merged)) {
     const el = document.getElementById(id);
     if (!el) continue;
     if (typeof val === 'boolean') {
@@ -750,6 +791,16 @@ function updateCementedCAMode(idx) {
   const isManual = mode ? mode.value === 'manual' : false;
   const leftRow = document.getElementById(`ca-${idx}-left-row`);
   const rightRow = document.getElementById(`ca-${idx}-right-row`);
+  if (leftRow) leftRow.style.display = isManual ? 'flex' : 'none';
+  if (rightRow) rightRow.style.display = isManual ? 'flex' : 'none';
+}
+
+/* ── Cemented per-lens Chamfer Mode toggle ── */
+function updateCementedChamferMode(idx) {
+  const mode = document.getElementById(`chamfer_mode_${idx}`);
+  const isManual = mode ? mode.value === 'manual' : false;
+  const leftRow = document.getElementById(`chamfer-${idx}-left-row`);
+  const rightRow = document.getElementById(`chamfer-${idx}-right-row`);
   if (leftRow) leftRow.style.display = isManual ? 'flex' : 'none';
   if (rightRow) rightRow.style.display = isManual ? 'flex' : 'none';
 }
@@ -795,6 +846,9 @@ function bindEvents() {
     'ca_mode_1','ca_1_left','ca_1_right',
     'ca_mode_2','ca_2_left','ca_2_right',
     'ca_mode_3','ca_3_left','ca_3_right',
+    'chamfer_mode_1','chamfer_1_left','chamfer_1_right',
+    'chamfer_mode_2','chamfer_2_left','chamfer_2_right',
+    'chamfer_mode_3','chamfer_3_left','chamfer_3_right',
   ];
   paramIds.forEach(id => {
     const el = document.getElementById(id);
@@ -823,6 +877,12 @@ function bindEvents() {
   // Chamfer mode selector
   const chamferMode = document.getElementById('chamfer_mode');
   if (chamferMode) chamferMode.addEventListener('change', () => { updateChamferInputs(); refreshPreview(); });
+
+  // Cemented per-lens chamfer mode selectors
+  for (let i = 1; i <= 3; i++) {
+    const cm = document.getElementById('chamfer_mode_' + i);
+    if (cm) cm.addEventListener('change', () => { updateCementedChamferMode(i); refreshPreview(); });
+  }
 
   // Select elements need 'change' for preview refresh (not just 'input')
   document.querySelectorAll('select').forEach(sel => {
@@ -901,6 +961,21 @@ async function loadDrawDefaults() {
       dia_tol_nonpos_lower: 'dia_tol_nonpos_lower',
       cemented_ref_lens: 'cemented_ref_lens',
       coat_preset: 'coat_preset',
+      CA_mode: 'CA_mode',
+      CA1: 'CA1',
+      CA2: 'CA2',
+      coat_s1_wave1: 'coat_s1_wave1',
+      coat_s1_wave2: 'coat_s1_wave2',
+      coat_s2_wave1: 'coat_s2_wave1',
+      coat_s2_wave2: 'coat_s2_wave2',
+      coat_s1_ravg1: 'coat_s1_ravg1',
+      coat_s1_ravg2: 'coat_s1_ravg2',
+      coat_s2_ravg1: 'coat_s2_ravg1',
+      coat_s2_ravg2: 'coat_s2_ravg2',
+      coat_s1_angle1: 'coat_s1_angle1',
+      coat_s1_angle2: 'coat_s1_angle2',
+      coat_s2_angle1: 'coat_s2_angle1',
+      coat_s2_angle2: 'coat_s2_angle2',
     };
     for (const [sk, drawId] of Object.entries(mapping)) {
       const el = document.getElementById(drawId);
@@ -911,7 +986,7 @@ async function loadDrawDefaults() {
     updateCAInputs();
     updateNInputs();
     updateChamferInputs();
-    for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
+    for (let i = 1; i <= 3; i++) { updateCementedCAMode(i); updateCementedChamferMode(i); }
   } catch (err) {
     console.warn('加载设置失败，使用默认值:', err.message);
   }
@@ -1015,6 +1090,9 @@ function applyOverrides(overrides) {
     ca_mode_1: 'ca_mode_1', ca_1_left: 'ca_1_left', ca_1_right: 'ca_1_right',
     ca_mode_2: 'ca_mode_2', ca_2_left: 'ca_2_left', ca_2_right: 'ca_2_right',
     ca_mode_3: 'ca_mode_3', ca_3_left: 'ca_3_left', ca_3_right: 'ca_3_right',
+    chamfer_mode_1: 'chamfer_mode_1', chamfer_1_left: 'chamfer_1_left', chamfer_1_right: 'chamfer_1_right',
+    chamfer_mode_2: 'chamfer_mode_2', chamfer_2_left: 'chamfer_2_left', chamfer_2_right: 'chamfer_2_right',
+    chamfer_mode_3: 'chamfer_mode_3', chamfer_3_left: 'chamfer_3_left', chamfer_3_right: 'chamfer_3_right',
   };
   for (const [key, elId] of Object.entries(fieldMap)) {
     if (overrides[key] !== undefined) {
@@ -1026,7 +1104,7 @@ function applyOverrides(overrides) {
   updateCAInputs();
   updateNInputs();
   updateChamferInputs();
-  for (let i = 1; i <= 3; i++) updateCementedCAMode(i);
+  for (let i = 1; i <= 3; i++) { updateCementedCAMode(i); updateCementedChamferMode(i); }
 }
 
 function onParentMessage(e) {
@@ -1119,6 +1197,9 @@ function saveAndReturn() {
     ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
     ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
     ca_mode_3: params.ca_mode_3, ca_3_left: params.ca_3_left, ca_3_right: params.ca_3_right,
+    chamfer_mode_1: params.chamfer_mode_1, chamfer_1_left: params.chamfer_1_left, chamfer_1_right: params.chamfer_1_right,
+    chamfer_mode_2: params.chamfer_mode_2, chamfer_2_left: params.chamfer_2_left, chamfer_2_right: params.chamfer_2_right,
+    chamfer_mode_3: params.chamfer_mode_3, chamfer_3_left: params.chamfer_3_left, chamfer_3_right: params.chamfer_3_right,
     page_overrides: pageOverrides,
   };
   window.parent.postMessage({ type: 'draw-save', payload: overrides }, '*');

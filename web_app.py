@@ -3,10 +3,11 @@
 Lens Drawing Tool - Flask Web Backend
 Wraps existing drawing/export logic as REST APIs for PyWebview frontend.
 """
-import sys, os, io, base64, traceback, json
+import sys, os, io, base64, traceback, json, threading
 from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify, send_file
+from PIL import Image
 
 # Ensure project root is on path for imports
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ import matplotlib.pyplot as plt
 # Import existing business logic
 from main import (
     draw_lens, _build_single_page_figure, export_pdf,
-    _arrow, _sagitta, _calc_et, _ann_ct, _ann_total_length,
+    _arrow, _sagitta, _calc_et, _ann_ct,
     _ann_et, _ann_diameter, _ann_diameter_left, _ann_sag1, _ann_sag2,
     _ann_ad1, _ann_ad2, _ann_r1, _ann_r2, _ann_chamfer_left,
     _ann_chamfer_right, _ann_spraying, _ann_optical_axis,
@@ -42,13 +43,15 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max upload
 
 # In-memory settings (loaded at startup, persisted on change)
 _current_settings = load_settings()
+_settings_lock = threading.Lock()
 
 
 def _merge_settings(updates):
     """Merge updates into current settings and persist."""
     global _current_settings
-    _current_settings.update(updates)
-    save_settings(_current_settings)
+    with _settings_lock:
+        _current_settings.update(updates)
+        save_settings(_current_settings)
     return _current_settings
 
 
@@ -202,16 +205,25 @@ def _cemented_data_from_row_dict(row):
     )
 
 
+def _safe_float(data, key, default):
+    """Safely convert a request parameter to float with a clear error message."""
+    val = data.get(key, default)
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        raise ValueError(f"参数 {key} 的值 '{val}' 无效，请输入数字")
+
+
 def _params_from_request():
     """Extract lens parameters from JSON request body."""
     data = request.get_json(force=True) or {}
     return {
-        "T": float(data.get("T", DEFAULTS["T"])),
-        "R1": float(data.get("R1", DEFAULTS["R1"])),
-        "R2": float(data.get("R2", DEFAULTS["R2"])),
-        "MD": float(data.get("MD", DEFAULTS["MD"])),
-        "AD1": float(data.get("AD1", DEFAULTS["AD1"])),
-        "AD2": float(data.get("AD2", DEFAULTS["AD2"])),
+        "T": _safe_float(data, "T", DEFAULTS["T"]),
+        "R1": _safe_float(data, "R1", DEFAULTS["R1"]),
+        "R2": _safe_float(data, "R2", DEFAULTS["R2"]),
+        "MD": _safe_float(data, "MD", DEFAULTS["MD"]),
+        "AD1": _safe_float(data, "AD1", DEFAULTS["AD1"]),
+        "AD2": _safe_float(data, "AD2", DEFAULTS["AD2"]),
         "CA1": data.get("CA1"),
         "CA2": data.get("CA2"),
         "CA_mode": data.get("CA_mode", "auto"),  # "auto" or "manual"
@@ -220,17 +232,17 @@ def _params_from_request():
         "part_no": data.get("part_no", "100.2.00888"),
         "glass_name": data.get("glass_name", "H-K9L"),
         "coat_s1_wave1": data.get("coat_s1_wave1", "420-680"),
-        "coat_s1_wave2": data.get("coat_s1_wave2", "850/940"),
+        "coat_s1_wave2": data.get("coat_s1_wave2", "680-850"),
         "coat_s2_wave1": data.get("coat_s2_wave1", "420-680"),
-        "coat_s2_wave2": data.get("coat_s2_wave2", "850/940"),
-        "coat_s1_ravg1": data.get("coat_s1_ravg1", "0.5"),
-        "coat_s1_ravg2": data.get("coat_s1_ravg2", "1"),
-        "coat_s2_ravg1": data.get("coat_s2_ravg1", "0.5"),
-        "coat_s2_ravg2": data.get("coat_s2_ravg2", "1"),
-        "coat_s1_angle1": data.get("coat_s1_angle1", "0-22"),
-        "coat_s1_angle2": data.get("coat_s1_angle2", "0-22"),
-        "coat_s2_angle1": data.get("coat_s2_angle1", "0-22"),
-        "coat_s2_angle2": data.get("coat_s2_angle2", "0-22"),
+        "coat_s2_wave2": data.get("coat_s2_wave2", "680-850"),
+        "coat_s1_ravg1": data.get("coat_s1_ravg1", "0.4"),
+        "coat_s1_ravg2": data.get("coat_s1_ravg2", "0.8"),
+        "coat_s2_ravg1": data.get("coat_s2_ravg1", "0.4"),
+        "coat_s2_ravg2": data.get("coat_s2_ravg2", "0.8"),
+        "coat_s1_angle1": data.get("coat_s1_angle1", "0-15"),
+        "coat_s1_angle2": data.get("coat_s1_angle2", "0-15"),
+        "coat_s2_angle1": data.get("coat_s2_angle1", "0-15"),
+        "coat_s2_angle2": data.get("coat_s2_angle2", "0-15"),
         "coat_preset": data.get("coat_preset", _current_settings.get("coat_preset", "SQ-A1")),
         "proc_c_single": data.get("proc_c_single", _current_settings.get("proc_c_single", "60\u2033")),
         "proc_c_assembly": data.get("proc_c_assembly", _current_settings.get("proc_c_assembly", "60\u2033")),
@@ -242,16 +254,17 @@ def _params_from_request():
         "proc_ranking": data.get("proc_ranking", _current_settings.get("proc_ranking", "01")),
         # Chamfer overrides from draw module
         "chamfer_mode": data.get("chamfer_mode", _current_settings.get("chamfer_mode", "auto")),
-        "chamfer_left": float(data.get("chamfer_left", _current_settings.get("chamfer_left", 0.2)) or 0.2),
-        "chamfer_right": float(data.get("chamfer_right", _current_settings.get("chamfer_right", 0.4)) or 0.4),
+        "chamfer_left": _safe_float(data, "chamfer_left", _current_settings.get("chamfer_left", 0.2)),
+        "chamfer_right": _safe_float(data, "chamfer_right", _current_settings.get("chamfer_right", 0.4)),
         # Tolerance overrides from draw module
-        "t_tol": float(data.get("t_tol", _current_settings.get("t_tol", 0.02)) or 0.02),
-        "sag_tol": float(data.get("sag_tol", _current_settings.get("sag_tol", 0.02)) or 0.02),
-        "dia_tol_pos_upper": float(data.get("dia_tol_pos_upper", _current_settings.get("dia_tol_pos_upper", _current_settings.get("dia_tol_upper", 0.010))) or 0.010),
-        "dia_tol_pos_lower": float(data.get("dia_tol_pos_lower", _current_settings.get("dia_tol_pos_lower", _current_settings.get("dia_tol_lower", 0.025))) or 0.025),
-        "dia_tol_nonpos_upper": float(data.get("dia_tol_nonpos_upper", _current_settings.get("dia_tol_nonpos_upper", 0.05)) or 0.05),
-        "dia_tol_nonpos_lower": float(data.get("dia_tol_nonpos_lower", _current_settings.get("dia_tol_nonpos_lower", 0.10)) or 0.10),
+        "t_tol": _safe_float(data, "t_tol", _current_settings.get("t_tol", 0.02)),
+        "sag_tol": _safe_float(data, "sag_tol", _current_settings.get("sag_tol", 0.02)),
+        "dia_tol_pos_upper": _safe_float(data, "dia_tol_pos_upper", _current_settings.get("dia_tol_pos_upper", _current_settings.get("dia_tol_upper", 0.010))),
+        "dia_tol_pos_lower": _safe_float(data, "dia_tol_pos_lower", _current_settings.get("dia_tol_pos_lower", _current_settings.get("dia_tol_lower", 0.025))),
+        "dia_tol_nonpos_upper": _safe_float(data, "dia_tol_nonpos_upper", _current_settings.get("dia_tol_nonpos_upper", 0.05)),
+        "dia_tol_nonpos_lower": _safe_float(data, "dia_tol_nonpos_lower", _current_settings.get("dia_tol_nonpos_lower", 0.10)),
         "cemented_ref_lens": int(data.get("cemented_ref_lens", _current_settings.get("cemented_ref_lens", 2)) or 2),
+        "filepath": data.get("filepath", ""),
     }
 
 
@@ -321,7 +334,6 @@ def _fig_to_preview_response(fig, is_cemented_single=False, field_values=None):
 
     # 3. 读取实际 PNG 尺寸
     buf.seek(0)
-    from PIL import Image
     pil_img = Image.open(buf)
     img_w, img_h = pil_img.size
 
@@ -383,6 +395,20 @@ def settings_page():
 #  API Routes
 # ══════════════════════════════════════════════════════════════════════
 
+@app.route("/api/defaults", methods=["GET"])
+def api_defaults():
+    """Return backend default parameter values for frontend reset."""
+    from config import DEFAULTS
+    return jsonify({
+        "T": DEFAULTS["T"],
+        "R1": DEFAULTS["R1"],
+        "R2": DEFAULTS["R2"],
+        "MD": DEFAULTS["MD"],
+        "AD1": DEFAULTS["AD1"],
+        "AD2": DEFAULTS["AD2"],
+    })
+
+
 @app.route("/api/preview", methods=["POST"])
 def api_preview():
     """Generate a preview PNG (full single-lens PDF page) and return as base64."""
@@ -401,7 +427,6 @@ def api_preview():
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
         ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.94))
-        _current_settings["ca_ratio"] = ca_ratio  # sync to settings for downstream
         if p.get("CA_mode") == "manual":
             ca1 = float(p["CA1"]) if p.get("CA1") not in (None, "") else None
             ca2 = float(p["CA2"]) if p.get("CA2") not in (None, "") else None
@@ -435,6 +460,10 @@ def api_preview():
             "signature": str(p.get("signature", "l.y.h")),
         }
 
+        # Inject form ca_ratio into settings copy so figure builder uses current value
+        _preview_settings = _current_settings.copy()
+        _preview_settings["ca_ratio"] = ca_ratio
+
         fig = _build_single_page_figure(
             T, R1, R2, MD, AD1, AD2,
             _current_settings["J_multiplier"],
@@ -453,12 +482,14 @@ def api_preview():
             _dia_pos_upper,
             _dia_pos_lower,
             proc_params=proc_params,
-            settings=_current_settings,
+            settings=_preview_settings,
             ca1=ca1, ca2=ca2,
         )
 
-        resp = _fig_to_preview_response(fig, is_cemented_single=False, field_values=field_values)
-        plt.close(fig)
+        try:
+            resp = _fig_to_preview_response(fig, is_cemented_single=False, field_values=field_values)
+        finally:
+            plt.close(fig)
         return jsonify({"success": True, **resp})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()})
@@ -469,10 +500,12 @@ def api_export():
     """Export PDF to the given path."""
     try:
         p = _params_from_request()
-        data = request.get_json(force=True) or {}
-        filepath = data.get("filepath", "")
+        filepath = p.get("filepath", "")
         if not filepath:
             return jsonify({"success": False, "error": "No filepath provided"})
+        # Path safety: reject path traversal attempts
+        if ".." in filepath.replace("\\", "/").split("/"):
+            return jsonify({"success": False, "error": "Invalid filepath: path traversal not allowed"})
 
         T, R1, R2, MD, AD1, AD2 = p["T"], p["R1"], p["R2"], p["MD"], p["AD1"], p["AD2"]
         errors = validate(T, R1, R2, MD, AD1, AD2)
@@ -486,7 +519,6 @@ def api_export():
 
         # CA: auto mode → None (auto_CA uses ca_ratio from settings), manual → float value
         ca_ratio = p.get("ca_ratio", _current_settings.get("ca_ratio", 0.94))
-        _current_settings["ca_ratio"] = ca_ratio  # sync to settings for downstream
         if p.get("CA_mode") == "manual":
             ca1 = float(p["CA1"]) if p.get("CA1") not in (None, "") else None
             ca2 = float(p["CA2"]) if p.get("CA2") not in (None, "") else None
@@ -499,6 +531,10 @@ def api_export():
         _sag_tol = p.get("sag_tol", _current_settings.get("sag_tol", 0.02))
         _dia_pos_upper = p.get("dia_tol_pos_upper", _current_settings.get("dia_tol_pos_upper", _current_settings.get("dia_tol_upper", 0.010)))
         _dia_pos_lower = p.get("dia_tol_pos_lower", _current_settings.get("dia_tol_pos_lower", _current_settings.get("dia_tol_lower", 0.025)))
+
+        # Inject form ca_ratio into settings copy so figure builder uses current value
+        _export_settings = _current_settings.copy()
+        _export_settings["ca_ratio"] = ca_ratio
 
         export_pdf(
             T, R1, R2, MD, AD1, AD2,
@@ -518,7 +554,7 @@ def api_export():
             filepath,
             _dia_pos_upper,
             _dia_pos_lower,
-            proc_params, _current_settings, ca1=ca1, ca2=ca2,
+            proc_params, _export_settings, ca1=ca1, ca2=ca2,
         )
 
         return jsonify({"success": True, "path": filepath})
@@ -573,6 +609,19 @@ def _cemented_augmented_settings(data):
         "cemented_ref_lens": "cemented_ref_lens",
         "coat_preset": "coat_preset",
         "ca_ratio": "ca_ratio",
+        # Coating detail fields
+        "coat_s1_wave1": "coat_s1_wave1",
+        "coat_s1_wave2": "coat_s1_wave2",
+        "coat_s2_wave1": "coat_s2_wave1",
+        "coat_s2_wave2": "coat_s2_wave2",
+        "coat_s1_ravg1": "coat_s1_ravg1",
+        "coat_s1_ravg2": "coat_s1_ravg2",
+        "coat_s2_ravg1": "coat_s2_ravg1",
+        "coat_s2_ravg2": "coat_s2_ravg2",
+        "coat_s1_angle1": "coat_s1_angle1",
+        "coat_s1_angle2": "coat_s1_angle2",
+        "coat_s2_angle1": "coat_s2_angle1",
+        "coat_s2_angle2": "coat_s2_angle2",
         # 胶合镜片逐片 CA 手动输入
         "ca_mode_1": "ca_mode_1",
         "ca_1_left": "ca_1_left",
@@ -583,6 +632,16 @@ def _cemented_augmented_settings(data):
         "ca_mode_3": "ca_mode_3",
         "ca_3_left": "ca_3_left",
         "ca_3_right": "ca_3_right",
+        # 胶合镜片逐片倒角手动输入
+        "chamfer_mode_1": "chamfer_mode_1",
+        "chamfer_1_left": "chamfer_1_left",
+        "chamfer_1_right": "chamfer_1_right",
+        "chamfer_mode_2": "chamfer_mode_2",
+        "chamfer_2_left": "chamfer_2_left",
+        "chamfer_2_right": "chamfer_2_right",
+        "chamfer_mode_3": "chamfer_mode_3",
+        "chamfer_3_left": "chamfer_3_left",
+        "chamfer_3_right": "chamfer_3_right",
     }
     for draw_key, settings_key in mapping.items():
         if draw_key in data:
@@ -614,80 +673,81 @@ def api_preview_cemented():
         image_sizes = []   # 每页 PNG 实际像素尺寸 [{w, h}, ...]
         fields_by_page = []  # 每页的字段数组（与 images 平行）
         for label, fig in figures:
-            buf = io.BytesIO()
-            fig.savefig(buf, format="png", dpi=PREVIEW_DPI, pad_inches=0)
-            buf.seek(0)
-            img_b64 = base64.b64encode(buf.read()).decode("utf-8")
-            images.append(img_b64)
+            try:
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=PREVIEW_DPI, pad_inches=0)
+                buf.seek(0)
+                img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+                images.append(img_b64)
 
-            # 读取实际 PNG 尺寸用于前端精确校正
-            buf.seek(0)
-            from PIL import Image
-            pil_img = Image.open(buf)
-            image_sizes.append({"w": pil_img.size[0], "h": pil_img.size[1]})
+                # 读取实际 PNG 尺寸用于前端精确校正
+                buf.seek(0)
+                pil_img = Image.open(buf)
+                image_sizes.append({"w": pil_img.size[0], "h": pil_img.size[1]})
 
-            labels.append(label)
-            # 仅单片页附带字段坐标（组装页为空数组）
-            is_single = label.startswith("镜片")
-            if is_single:
-                # 提取当前镜片索引并计算实际字段值
-                lens_idx = int(label.replace("镜片", "")) - 1
-                lens = cemented_data.lenses[lens_idx]
-                _ca_ratio = local_settings.get("ca_ratio", 0.94)
-                _ca1_manual, _ca2_manual = _resolve_cemented_ca(local_settings, lens_idx, _ca_ratio)
-                _ca1 = _ca1_manual if _ca1_manual is not None else auto_CA(lens.AD_left, _ca_ratio)
-                _ca2 = _ca2_manual if _ca2_manual is not None else auto_CA(lens.AD_right, _ca_ratio)
-                _n_mode = local_settings.get("proc_N_mode", "auto")
-                _n_val = float(local_settings.get("proc_N_manual", "1.5")) if _n_mode == "manual" else auto_N(lens.MD)
-                _chamfer_mode = local_settings.get("chamfer_mode", "auto")
-                if _chamfer_mode == "auto":
-                    _cL = _cR = auto_chamfer_by_dia(lens.MD)
-                else:
-                    _cL = local_settings.get("chamfer_left", 0.2)
-                    _cR = local_settings.get("chamfer_right", 0.4)
-                field_values = {
-                    "vendor": local_settings.get("proc_vendor", "CDGM"),
-                    "ranking": str(local_settings.get("proc_ranking", "01")),
-                    "chamfer": f"{_cL:.1f}",
-                    "ca1": f"{_ca1:.2f}",
-                    "ca2": f"{_ca2:.2f}",
-                    "c_val": str(local_settings.get("proc_c_single", "60\u2033")),
-                    "n_val": str(_n_val),
-                    "dn_val": str(local_settings.get("proc_DN", "0.3")),
-                    "b_val": str(local_settings.get("proc_surface_defect", "60/40")),
-                    "signature": str(local_settings.get("proc_signature", "l.y.h")),
-                }
-                # 用 BBox 提取精确位置
-                actual_positions = extract_field_positions(fig, PREVIEW_DPI)
-                raw = get_preview_field_metadata(is_cemented_single=True)
-                page_fields = []
-                for f in raw:
-                    if f["id"] in actual_positions:
-                        pos = actual_positions[f["id"]]
-                        page_fields.append({
-                            "id": f["id"], "label": f["label"],
-                            "left_pct": pos["left_pct"],
-                            "top_pct": pos["top_pct"],
-                            "w_pct": pos["w_pct"],
-                            "h_pct": pos["h_pct"],
-                            "source": f["source"],
-                            "value": field_values.get(f["id"], ""),
-                        })
+                labels.append(label)
+                # 仅单片页附带字段坐标（组装页为空数组）
+                is_single = label.startswith("镜片")
+                if is_single:
+                    # 提取当前镜片索引并计算实际字段值
+                    lens_idx = int(label.replace("镜片", "")) - 1
+                    lens = cemented_data.lenses[lens_idx]
+                    _ca_ratio = local_settings.get("ca_ratio", 0.94)
+                    _ca1_manual, _ca2_manual = _resolve_cemented_ca(local_settings, lens_idx, _ca_ratio)
+                    _ca1 = _ca1_manual if _ca1_manual is not None else auto_CA(lens.AD_left, _ca_ratio)
+                    _ca2 = _ca2_manual if _ca2_manual is not None else auto_CA(lens.AD_right, _ca_ratio)
+                    _n_mode = local_settings.get("proc_N_mode", "auto")
+                    _n_val = float(local_settings.get("proc_N_manual", "1.5")) if _n_mode == "manual" else auto_N(lens.MD)
+                    _chamfer_mode = local_settings.get("chamfer_mode", "auto")
+                    if _chamfer_mode == "auto":
+                        _cL = _cR = auto_chamfer_by_dia(lens.MD)
                     else:
-                        page_fields.append({
-                            "id": f["id"], "label": f["label"],
-                            "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
-                            "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
-                            "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
-                            "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
-                            "source": f["source"],
-                            "value": field_values.get(f["id"], ""),
-                        })
-                fields_by_page.append(page_fields)
-            else:
-                fields_by_page.append([])
+                        _cL = local_settings.get("chamfer_left", 0.2)
+                        _cR = local_settings.get("chamfer_right", 0.4)
+                    field_values = {
+                        "vendor": local_settings.get("proc_vendor", "CDGM"),
+                        "ranking": str(local_settings.get("proc_ranking", "01")),
+                        "chamfer": f"{_cL:.1f}",
+                        "ca1": f"{_ca1:.2f}",
+                        "ca2": f"{_ca2:.2f}",
+                        "c_val": str(local_settings.get("proc_c_single", "60\u2033")),
+                        "n_val": str(_n_val),
+                        "dn_val": str(local_settings.get("proc_DN", "0.3")),
+                        "b_val": str(local_settings.get("proc_surface_defect", "60/40")),
+                        "signature": str(local_settings.get("proc_signature", "l.y.h")),
+                    }
+                    # 用 BBox 提取精确位置
+                    actual_positions = extract_field_positions(fig, PREVIEW_DPI)
+                    raw = get_preview_field_metadata(is_cemented_single=True)
+                    page_fields = []
+                    for f in raw:
+                        if f["id"] in actual_positions:
+                            pos = actual_positions[f["id"]]
+                            page_fields.append({
+                                "id": f["id"], "label": f["label"],
+                                "left_pct": pos["left_pct"],
+                                "top_pct": pos["top_pct"],
+                                "w_pct": pos["w_pct"],
+                                "h_pct": pos["h_pct"],
+                                "source": f["source"],
+                                "value": field_values.get(f["id"], ""),
+                            })
+                        else:
+                            page_fields.append({
+                                "id": f["id"], "label": f["label"],
+                                "left_pct": round(f["x_mm"] / 297.0 * 100, 2),
+                                "top_pct": round((210.0 - f["y_mm"]) / 210.0 * 100, 2),
+                                "w_pct": round(f["w_mm"] / 297.0 * 100, 2),
+                                "h_pct": round(f["h_mm"] / 210.0 * 100, 2),
+                                "source": f["source"],
+                                "value": field_values.get(f["id"], ""),
+                            })
+                    fields_by_page.append(page_fields)
+                else:
+                    fields_by_page.append([])
 
-            plt.close(fig)
+            finally:
+                plt.close(fig)
 
         return jsonify({"success": True, "images": images, "labels": labels,
                         "fields_by_page": fields_by_page, "image_sizes": image_sizes})
@@ -703,6 +763,9 @@ def api_export_cemented():
         filepath = data.get("filepath", "")
         if not filepath:
             return jsonify({"success": False, "error": "No filepath provided"})
+        # Path safety: reject path traversal attempts
+        if ".." in filepath.replace("\\", "/").split("/"):
+            return jsonify({"success": False, "error": "Invalid filepath: path traversal not allowed"})
 
         cemented_data = _cemented_data_from_request(data)
         if len(cemented_data.lenses) < 2:
@@ -828,7 +891,7 @@ def api_batch_export():
             "total": result["total"],
             "success_save": result["success_save"],
             "success_mfr": result["success_mfr"],
-            "failed_count": (result["total"] - result["success_save"]) + (result["total"] - result["success_mfr"]),
+            "failed_count": result["total"] - min(result["success_save"], result["success_mfr"]),
             "errors": result["errors"],
             "output_dir": output_dir,
         })
@@ -877,20 +940,31 @@ def api_save_text_file():
 # ══════════════════════════════════════════════════════════════════════
 
 def get_free_port(host="127.0.0.1"):
+    """Get a free port by binding to port 0 and keeping the socket open.
+    Returns (port, sock) — caller must close sock when done.
+    """
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, 0))
     port = sock.getsockname()[1]
-    sock.close()
-    return port
+    return port, sock
 
 
 def run_server_in_thread(host="127.0.0.1", port=0):
     """Start Flask server in a background thread. Returns actual port."""
     import threading
+    sock = None
     if port == 0:
-        port = get_free_port(host)
-    t = threading.Thread(target=lambda: app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False), daemon=True)
+        port, sock = get_free_port(host)
+    def _run():
+        try:
+            if sock:
+                sock.close()  # Release port just before Flask binds
+            app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)
+        except Exception:
+            pass
+    t = threading.Thread(target=_run, daemon=True)
     t.start()
     return port
 

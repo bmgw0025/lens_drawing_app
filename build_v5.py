@@ -118,6 +118,7 @@ args = [
     "--clean",
     "--workpath", BUILD_DIR,
     "--distpath", DIST_DIR,
+    "--icon", os.path.join(WORKSPACE, "icon.ico"),
 ]
 
 # 运行时 hooks
