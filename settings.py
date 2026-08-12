@@ -4,6 +4,7 @@ Persists user preferences to JSON file.
 """
 import json
 import os
+import math
 
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_settings.json")
 
@@ -63,20 +64,100 @@ DEFAULT_SETTINGS = {
 }
 
 
+def validate_settings_updates(updates):
+    """Validate a partial settings payload and return normalized values."""
+    if not isinstance(updates, dict):
+        raise ValueError("设置内容必须是对象")
+
+    unknown = sorted(set(updates) - set(DEFAULT_SETTINGS))
+    if unknown:
+        raise ValueError(f"包含未知设置项: {', '.join(unknown)}")
+
+    normalized = {}
+    numeric_keys = {
+        key for key, default in DEFAULT_SETTINGS.items()
+        if isinstance(default, (int, float)) and not isinstance(default, bool)
+    }
+    strictly_positive = {"J_multiplier", "font_size", "arrow_scale", "ca_ratio"}
+    nonnegative = {
+        "ct_offset_J", "et_offset_J", "sag_offset_J", "dia_offset_J",
+        "ad_offset_J", "r_offset_J", "spray_gap_J",
+        "chamfer_left", "chamfer_right", "t_tol", "sag_tol",
+        "dia_tol_upper", "dia_tol_lower",
+        "dia_tol_pos_upper", "dia_tol_pos_lower",
+        "dia_tol_nonpos_upper", "dia_tol_nonpos_lower",
+    }
+
+    for key, raw in updates.items():
+        if key in numeric_keys:
+            if isinstance(raw, bool):
+                raise ValueError(f"设置 {key} 必须是数值")
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"设置 {key} 必须是数值")
+            if not math.isfinite(value):
+                raise ValueError(f"设置 {key} 必须是有限数值")
+            if key in strictly_positive and value <= 0:
+                raise ValueError(f"设置 {key} 必须大于 0")
+            if key in nonnegative and value < 0:
+                raise ValueError(f"设置 {key} 不能为负数")
+            if key == "ca_ratio" and value > 1:
+                raise ValueError("设置 ca_ratio 不能大于 1")
+            if key == "cemented_ref_lens":
+                if not value.is_integer() or not 1 <= int(value) <= 3:
+                    raise ValueError("胶合定位镜片必须是 1~3 的整数")
+                normalized[key] = int(value)
+            else:
+                normalized[key] = value
+            continue
+
+        if raw is None:
+            raise ValueError(f"设置 {key} 不能为空")
+        normalized[key] = str(raw)
+
+    if normalized.get("chamfer_mode", DEFAULT_SETTINGS["chamfer_mode"]) not in ("auto", "manual"):
+        raise ValueError("倒角模式无效")
+    if normalized.get("proc_N_mode", DEFAULT_SETTINGS["proc_N_mode"]) not in ("auto", "manual"):
+        raise ValueError("N 模式无效")
+    if "proc_N_manual" in normalized:
+        try:
+            n_value = float(normalized["proc_N_manual"])
+        except (TypeError, ValueError):
+            raise ValueError("手动 N 必须是数值")
+        if not math.isfinite(n_value) or n_value <= 0:
+            raise ValueError("手动 N 必须是大于 0 的有限数值")
+
+    return normalized
+
+
 def load_settings():
     """Load settings from JSON file, return defaults if not found."""
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            # Merge with defaults (in case new keys added)
+            if not isinstance(saved, dict):
+                return DEFAULT_SETTINGS.copy()
+
+            # Invalid legacy values fall back per field so one damaged setting
+            # cannot make every preview fail after startup.
+            sanitized = {}
+            for key, value in saved.items():
+                if key not in DEFAULT_SETTINGS:
+                    continue
+                try:
+                    sanitized.update(validate_settings_updates({key: value}))
+                except ValueError:
+                    continue
+
             result = DEFAULT_SETTINGS.copy()
-            result.update(saved)
+            result.update(sanitized)
             # ── 自动迁移：旧键 → 新键（仅当新键不存在时） ──
-            if "dia_tol_pos_upper" not in saved and "dia_tol_upper" in saved:
-                result["dia_tol_pos_upper"] = saved["dia_tol_upper"]
-            if "dia_tol_pos_lower" not in saved and "dia_tol_lower" in saved:
-                result["dia_tol_pos_lower"] = saved["dia_tol_lower"]
+            if "dia_tol_pos_upper" not in saved and "dia_tol_upper" in sanitized:
+                result["dia_tol_pos_upper"] = sanitized["dia_tol_upper"]
+            if "dia_tol_pos_lower" not in saved and "dia_tol_lower" in sanitized:
+                result["dia_tol_pos_lower"] = sanitized["dia_tol_lower"]
             return result
         except Exception:
             return DEFAULT_SETTINGS.copy()

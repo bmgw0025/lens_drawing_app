@@ -15,7 +15,7 @@ COLUMN_NAMES = [
     "PartName", "PartNo", "Glass1", "Glass2", "Glass3",
     "T1", "T2", "T3", "R1", "R2", "R3", "R4",
     "MD1", "MD2", "MD3", "AD1", "AD2", "AD3", "AD4",
-    "SavePdfFolder", "MfrPdfFolder",
+    "SavePdfFolder", "MfrPdfFolder", "CustomProc",
 ]
 
 REQUIRED_SINGLE  = ["PartName", "PartNo", "Glass1", "T1", "R1", "R2", "MD1", "AD1", "AD2"]
@@ -85,7 +85,8 @@ def _safe_float(val) -> Optional[float]:
     if _is_empty(val):
         return None
     try:
-        return float(val)
+        result = float(val)
+        return result if math.isfinite(result) else None
     except (ValueError, TypeError):
         return None
 
@@ -130,12 +131,15 @@ def parse_row(row_dict: Dict[str, Any]) -> CementedLensData:
     lenses = [SingleLensData(glass=glass1, T=T1, R_left=R1, R_right=R2,
                              MD=MD1, AD_left=AD1, AD_right=AD2)]
 
-    has_g2 = glass2 != "" and T2 is not None
-    has_g3 = glass3 != "" and T3 is not None
+    has_g2 = glass2 != "" or any(v is not None for v in (T2, R3, MD2, AD3))
+    has_g3 = glass3 != "" or any(v is not None for v in (T3, R4, MD3, AD4))
+
+    if has_g3 and not has_g2:
+        raise ValueError("镜片3已有数据，但镜片2为空；胶合镜片必须按顺序填写")
 
     # ── 镜片 2（双胶合） ──
     if has_g2:
-        miss2 = [k for k in ["T2","R3","MD2","AD3"]
+        miss2 = (["Glass2"] if not glass2 else []) + [k for k in ["T2","R3","MD2","AD3"]
                  if _safe_float(row_dict.get(k)) is None]
         if miss2:
             raise ValueError(f"镜片2缺参数: {', '.join(miss2)}")
@@ -144,7 +148,7 @@ def parse_row(row_dict: Dict[str, Any]) -> CementedLensData:
 
     # ── 镜片 3（三胶合） ──
     if has_g3:
-        miss3 = [k for k in ["T3","R4","MD3","AD4"]
+        miss3 = (["Glass3"] if not glass3 else []) + [k for k in ["T3","R4","MD3","AD4"]
                  if _safe_float(row_dict.get(k)) is None]
         if miss3:
             raise ValueError(f"镜片3缺参数: {', '.join(miss3)}")
@@ -158,9 +162,33 @@ def parse_row(row_dict: Dict[str, Any]) -> CementedLensData:
     if not mfr_folder:
         mfr_folder = "Mfr PDF"
 
+    custom_proc = None
+    page_overrides = None
+    custom_proc_raw = row_dict.get("CustomProc")
+    if not _is_empty(custom_proc_raw):
+        import json
+        try:
+            custom_proc = (custom_proc_raw if isinstance(custom_proc_raw, dict)
+                           else json.loads(str(custom_proc_raw)))
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError(f"CustomProc JSON 无效: {exc}")
+        if not isinstance(custom_proc, dict):
+            raise ValueError("CustomProc 必须是 JSON 对象")
+        custom_proc = custom_proc.copy()
+        page_overrides = custom_proc.pop("page_overrides", None)
+        if page_overrides is not None and not isinstance(page_overrides, dict):
+            raise ValueError("CustomProc.page_overrides 必须是对象")
+
+    from config import validate_cemented_lenses
+    geometry_errors = validate_cemented_lenses(lenses)
+    if geometry_errors:
+        raise ValueError("; ".join(geometry_errors))
+
     return CementedLensData(
         part_name=part_name, part_no=part_no, lenses=lenses,
-        save_pdf_folder=save_folder, mfr_pdf_folder=mfr_folder
+        save_pdf_folder=save_folder, mfr_pdf_folder=mfr_folder,
+        proc_overrides=custom_proc,
+        page_overrides=page_overrides,
     )
 
 
@@ -307,24 +335,24 @@ def create_template_excel(filepath: str):
     ex1 = ["singlet_01","100.2.00001","H-K9L","","",
            4.70,"","",-35.0,30.0,"","",
            19.0,"","",15.0,13.0,"","",
-           "Save PDF","Mfr PDF"]
+           "Save PDF","Mfr PDF",""]
     # 示例 - 双胶合
     ex2 = ["doublet_01","100.2.00002","H-K9L","ZF2","",
            3.50,2.00,"",-50.0,-35.0,60.0,"",
            20.0,18.0,"",16.0,15.0,14.0,"",
-           "Save PDF","Mfr PDF"]
+           "Save PDF","Mfr PDF",""]
     # 示例 - 三胶合
     ex3 = ["triplet_01","100.2.00003","H-K9L","ZF2","H-K9L",
            4.00,2.50,3.00,-60.0,-40.0,45.0,80.0,
            22.0,20.0,21.0,18.0,17.0,16.0,15.0,
-           "Save PDF","Mfr PDF"]
+           "Save PDF","Mfr PDF",""]
 
     for r, ex in enumerate([ex1, ex2, ex3], start=2):
         for i, val in enumerate(ex):
             c = ws.cell(row=r, column=i + 1, value=val if val != "" else None)
             c.border = thin; c.alignment = Alignment(horizontal="center")
 
-    widths = [14,14,10,10,10,8,8,8,8,8,8,8,8,8,8,8,8,8,8,14,14]
+    widths = [14,14,10,10,10,8,8,8,8,8,8,8,8,8,8,8,8,8,8,14,14,45]
     for i, w in enumerate(widths):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = w
 
@@ -341,6 +369,7 @@ _COL_KEY_MAP = {
     "MD1": "MD1", "MD2": "MD2", "MD3": "MD3",
     "AD1": "AD1", "AD2": "AD2", "AD3": "AD3", "AD4": "AD4",
     "SavePdfFolder": "save_pdf_folder", "MfrPdfFolder": "mfr_pdf_folder",
+    "CustomProc": "custom_proc",
 }
 
 _NUMERIC_EXPORT_COLS = {
@@ -383,6 +412,9 @@ def export_batch_excel(filepath: str, rows_data):
             # 数值列转换
             if col_name in _NUMERIC_EXPORT_COLS:
                 val = _safe_float(val)
+            elif col_name == "CustomProc" and isinstance(val, dict):
+                import json
+                val = json.dumps(val, ensure_ascii=False, separators=(",", ":"))
             elif isinstance(val, str) and val.strip() == "":
                 val = None
             c = ws.cell(row=r_idx, column=c_idx, value=val)
@@ -390,7 +422,7 @@ def export_batch_excel(filepath: str, rows_data):
             c.alignment = Alignment(horizontal="center")
 
     # 列宽
-    widths = [14, 14, 10, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 14, 14]
+    widths = [14, 14, 10, 10, 10, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 14, 14, 45]
     for i, w in enumerate(widths):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i + 1)].width = w
 

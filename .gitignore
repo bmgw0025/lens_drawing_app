@@ -30,6 +30,8 @@ test_log2.txt
 test_*.py
 test_*.pdf
 test_*.png
+!tests/
+!tests/test_*.py
 
 # Font cache
 fontlist-*.json

@@ -3,11 +3,9 @@
 ; 配合 build_v5.py 生成的 LensDrawing_v5 目录使用
 
 #define MyAppName "LensDrawing"
-#define MyAppVersion "3.3"
+#define MyAppVersion "3.4"
 #define MyAppPublisher "Lens Drawing Tool Team"
 #define MyAppExeName "LensDrawing.exe"
-; 源文件路径 - build_v5.py 输出目录
-#define SourceDir "C:\Users\Administrator\Desktop\LensDrawing_v5"
 
 [Setup]
 ; 基本信息
@@ -16,6 +14,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+VersionInfoVersion=3.4.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 ; 输出设置
@@ -27,13 +26,13 @@ SolidCompression=yes
 ; 界面
 WizardStyle=modern
 ; 图标
-SetupIconFile=C:\Users\Administrator\Desktop\lens drawing\icon.ico
+SetupIconFile={#SourcePath}\icon.ico
 ; 权限
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ; 架构
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 ; 卸载时关闭程序
 CloseApplications=force
 
@@ -43,13 +42,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 
 [Files]
 ; 主程序
-Source: "{#SourceDir}\LensDrawing.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}\dist\LensDrawing\LensDrawing.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; _internal 目录 (所有依赖)
-Source: "{#SourceDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePath}\dist\LensDrawing\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 面向软件使用人员的版本说明
+Source: "{#SourcePath}\V3.4_版本更新说明.md"; DestDir: "{app}"; Flags: ignoreversion
 ; VC++ Redistributable
 Source: "{#SourcePath}\installer_deps\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; WebView2 Runtime (如果存在) - 使用实际的 Evergreen Standalone Installer 文件名
@@ -57,9 +57,9 @@ Source: "{#SourcePath}\installer_deps\MicrosoftEdgeWebView2RuntimeInstallerX64.e
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\V3.4 版本更新说明"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\V3.4_版本更新说明.md"""
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Run]
 ; 静默安装 VC++ Redistributable
@@ -86,8 +86,6 @@ end;
 
 // 检查 WebView2 Runtime 是否已安装
 function WebView2NeedsInstall: Boolean;
-var
-  ResultCode: Integer;
 begin
   // 检查注册表中是否存在 WebView2 Runtime
   Result := not RegKeyExists(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEB-152B52E44B8B}');

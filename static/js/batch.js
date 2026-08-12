@@ -35,6 +35,10 @@ function inferLensType(row) {
   return '单片';
 }
 
+function editorValue(value) {
+  return value === null || value === undefined ? '' : String(value);
+}
+
 /* ── Input Validation ── */
 const NUMERIC_COLS = ['T1','T2','T3','R1','R2','R3','R4','MD1','MD2','MD3','AD1','AD2','AD3','AD4'];
 
@@ -57,6 +61,27 @@ function validateInput(inp) {
     inp.classList.add('invalid');
   }
   return ok;
+}
+
+function validateBatchOutputIdentifiers(rows) {
+  const invalidChars = /[<>:"/\\|?*\x00-\x1f]/;
+  const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+  for (const [key, label] of [['part_name', 'PartName'], ['part_no', 'PartNo']]) {
+    const seen = new Map();
+    for (let index = 0; index < rows.length; index++) {
+      const value = String(rows[index][key] || '').trim();
+      if (!value) return `第 ${index + 1} 行 ${label} 不能为空`;
+      if (invalidChars.test(value) || value.endsWith('.') || value.endsWith(' ') || reserved.test(value)) {
+        return `第 ${index + 1} 行 ${label} 不是有效的 Windows 文件名: ${value}`;
+      }
+      const normalized = value.toLocaleLowerCase();
+      if (seen.has(normalized)) {
+        return `第 ${seen.get(normalized)} 行与第 ${index + 1} 行 ${label} 重复，将导致 PDF 覆盖`;
+      }
+      seen.set(normalized, index + 1);
+    }
+  }
+  return '';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -156,12 +181,13 @@ document.getElementById('btn-export-template').addEventListener('click', async (
   const headers = [
     'PartName','PartNo','Glass1','Glass2','Glass3',
     'T1','T2','T3','R1','R2','R3','R4',
-    'MD1','MD2','MD3','AD1','AD2','AD3','AD4'
+    'MD1','MD2','MD3','AD1','AD2','AD3','AD4',
+    'SavePdfFolder','MfrPdfFolder','CustomProc'
   ];
   const example = [
     'Lens_01','100.2.001','H-FK61B','H-ZLAF55D','H-ZF11',
     '5.4','1.4','3','35.406','-35.259','147.008','-147.008',
-    '12','12','12','12','12','10','10'
+    '12','12','12','12','12','10','10','','',''
   ];
   const csvContent = [headers.join(','), example.join(',')].join('\r\n');
 
@@ -233,10 +259,10 @@ function renderImportTable(items) {
       <td>${escapeHtml(item.part_no || '')}</td>
       <td><span class="badge ${badgeClass}">${type}</span></td>
       <td>${escapeHtml(item.glass1 || '')}</td>
-      <td>${item.T1 || '-'}</td>
-      <td>${item.R1 || '-'}</td>
-      <td>${item.R2 || '-'}</td>
-      <td>${item.MD1 || '-'}</td>
+      <td>${escapeHtml(editorValue(item.T1) || '-')}</td>
+      <td>${escapeHtml(editorValue(item.R1) || '-')}</td>
+      <td>${escapeHtml(editorValue(item.R2) || '-')}</td>
+      <td>${escapeHtml(editorValue(item.MD1) || '-')}</td>
     `;
     importBody.appendChild(tr);
   });
@@ -313,21 +339,36 @@ btnImportToEditor.addEventListener('click', () => {
       glass1: item.glass1 || '',
       glass2: item.glass2 || '',
       glass3: item.glass3 || '',
-      T1: String(item.T1 || ''),
-      T2: String(item.T2 || ''),
-      T3: String(item.T3 || ''),
-      R1: String(item.R1 || ''),
-      R2: String(item.R2 || ''),
-      R3: String(item.R3 || ''),
-      R4: String(item.R4 || ''),
-      MD1: String(item.MD1 || ''),
-      MD2: String(item.MD2 || ''),
-      MD3: String(item.MD3 || ''),
-      AD1: String(item.AD1 || ''),
-      AD2: String(item.AD2 || ''),
-      AD3: String(item.AD3 || ''),
-      AD4: String(item.AD4 || ''),
+      T1: editorValue(item.T1),
+      T2: editorValue(item.T2),
+      T3: editorValue(item.T3),
+      R1: editorValue(item.R1),
+      R2: editorValue(item.R2),
+      R3: editorValue(item.R3),
+      R4: editorValue(item.R4),
+      MD1: editorValue(item.MD1),
+      MD2: editorValue(item.MD2),
+      MD3: editorValue(item.MD3),
+      AD1: editorValue(item.AD1),
+      AD2: editorValue(item.AD2),
+      AD3: editorValue(item.AD3),
+      AD4: editorValue(item.AD4),
     });
+    const rows = editorBody.querySelectorAll('tr');
+    const tr = rows.length ? rows[rows.length - 1] : null;
+    if (tr && item.custom_proc) {
+      try {
+        const overrides = typeof item.custom_proc === 'string'
+          ? JSON.parse(item.custom_proc)
+          : item.custom_proc;
+        if (overrides && typeof overrides === 'object') {
+          rowProcOverrides.set(tr, overrides);
+          updateProcBtnStyle(tr);
+        }
+      } catch (err) {
+        console.warn('忽略无效的自定义加工参数:', err.message);
+      }
+    }
   });
   showToast(`已导入 ${importedData.length} 条到编辑器`, 'success');
   // Switch to editor tab
@@ -414,6 +455,12 @@ document.getElementById('btn-export-all').addEventListener('click', async () => 
   });
   if (invalidRows.length > 0) {
     showToast(`第 ${invalidRows[0].row} 行 "${invalidRows[0].col}" 字段包含非法值: ${invalidRows[0].val}`, 'error');
+    return;
+  }
+
+  const identifierError = validateBatchOutputIdentifiers(rows);
+  if (identifierError) {
+    showToast(identifierError, 'error');
     return;
   }
 
@@ -527,7 +574,8 @@ document.getElementById('btn-export-all').addEventListener('click', async () => 
     if (errorCount === 0) {
       desc.textContent = `全部 ${total} 条导出成功！`;
     } else {
-      desc.textContent = `${total - errorCount} 条成功，${errorCount} 条失败`;
+      desc.textContent = `${total - errorCount} 条成功，${errorCount} 条失败。${allErrors[0] || ''}`;
+      desc.title = allErrors.join('\n');
     }
   }
 
@@ -536,7 +584,7 @@ document.getElementById('btn-export-all').addEventListener('click', async () => 
   if (errorCount === 0) {
     showToast(`全部 ${total} 条导出成功 (Save PDF + Mfr PDF${excelExported ? ' + Excel' : ''})`, 'success');
   } else {
-    showToast(`${okCount}/${total} 条成功，${errorCount} 条失败`, 'error');
+    showToast(`${okCount}/${total} 条成功，${errorCount} 条失败：${allErrors[0] || '请检查输入'}`, 'error');
     if (allErrors.length) {
       console.error('导出错误详情:', allErrors);
       // 在界面中显示错误详情（PyWebview 中用户无法访问浏览器控制台）
@@ -663,7 +711,7 @@ async function openProcModal(tr) {
     '编辑加工要求 — ' + (rowData.part_name || '未命名') + ' (' + lensType + ')';
 
   // 镜片信息
-  document.getElementById('proc-modal-lens-info').innerHTML =
+  document.getElementById('proc-modal-lens-info').textContent =
     'Glass: ' + [rowData.glass1, rowData.glass2, rowData.glass3].filter(Boolean).join(' / ') +
     ' | T: ' + [rowData.T1, rowData.T2, rowData.T3].filter(Boolean).join(' / ') +
     ' | MD: ' + [rowData.MD1, rowData.MD2, rowData.MD3].filter(Boolean).join(' / ');
@@ -678,11 +726,15 @@ async function openProcModal(tr) {
     ['MD1', 'MD1'], ['MD2', 'MD2'], ['MD3', 'MD3'],
     ['AD1', 'AD1'], ['AD2', 'AD2'], ['AD3', 'AD3'], ['AD4', 'AD4']
   ];
-  const visible = [];
   fields.forEach(([label, key]) => {
-    if (rowData[key]) visible.push('<span style="margin-right:12px;white-space:nowrap;font-size:11px;"><b>' + label + '</b>: ' + rowData[key] + '</span>');
+    if (!rowData[key]) return;
+    const item = document.createElement('span');
+    item.style.cssText = 'margin-right:12px;white-space:nowrap;font-size:11px;';
+    const name = document.createElement('b');
+    name.textContent = label;
+    item.append(name, document.createTextNode(': ' + rowData[key]));
+    lensRO.appendChild(item);
   });
-  lensRO.innerHTML = visible.join('');
 
   // 胶合定位镜片行仅胶合时显示，并动态调整可选范围
   const refRow = document.getElementById('proc-modal-ref-row');
@@ -1115,13 +1167,14 @@ function openDrawIframe(tr) {
 
   // 监听 iframe 就绪信号（iframe 完成初始化后主动通知）
   _iframeReadyHandler = (e) => {
+    if (e.origin !== window.location.origin || e.source !== iframe.contentWindow) return;
     if (e.data && e.data.type === 'iframe-ready') {
       window.removeEventListener('message', _iframeReadyHandler);
       _iframeReadyHandler = null;
       iframe.contentWindow.postMessage({
         type: 'batch-row-data',
         payload: { row: rowData, overrides: overrides }
-      }, '*');
+      }, window.location.origin);
     }
   };
   window.addEventListener('message', _iframeReadyHandler);
@@ -1146,6 +1199,8 @@ document.getElementById('btn-draw-cancel').addEventListener('click', closeDrawIf
 
 // 监听 iframe 保存消息
 window.addEventListener('message', (e) => {
+  const iframe = document.getElementById('draw-iframe');
+  if (e.origin !== window.location.origin || e.source !== iframe.contentWindow) return;
   if (!e.data || e.data.type !== 'draw-save') return;
   if (!activeProcRow) return;
 

@@ -11,6 +11,36 @@ let previewIndex = 0;     // 当前显示的图片索引
 let currentImageBackendSize = null;  // {w, h} 后端返回的实际像素尺寸，用于精确 overlay 定位
 let pageOverrides = {};   // 逐页加工参数覆盖 { pageIndex: { settingKey: value, ... }, ... }
 
+function createDefaultApertureStates(singleDefaults = {}) {
+  const ad1 = String(singleDefaults.AD1 ?? '13.5');
+  const ad2 = String(singleDefaults.AD2 ?? '13.5');
+  return {
+    single: {
+      outerLeft: ad1,
+      outerRight: ad2,
+    },
+    doublet: {
+      outerLeft: '13.5',
+      interface1Left: '13.5',
+      interface1Right: '13.5',
+      outerRight: '12',
+      split1: false,
+    },
+    triplet: {
+      outerLeft: '13.5',
+      interface1Left: '13.5',
+      interface1Right: '13.5',
+      interface2Left: '12',
+      interface2Right: '12',
+      outerRight: '12',
+      split1: false,
+      split2: false,
+    },
+  };
+}
+
+let apertureStates = createDefaultApertureStates();
+
 /* ── Embedded mode detection ── */
 const _urlParams = new URLSearchParams(window.location.search);
 const embeddedMode = _urlParams.get('embed') === '1';
@@ -236,15 +266,35 @@ function onFieldEdit(e) {
     // 逐页隔离：将编辑存入 pageOverrides
     if (!pageOverrides[previewIndex]) pageOverrides[previewIndex] = {};
     const ov = pageOverrides[previewIndex];
+    const displayedValue = (id) => {
+      const field = currentFields.find(item => item.id === id);
+      return field ? field.value : '';
+    };
 
     const cementedCalcFields = {
-      'chamfer': () => { ov['chamfer_mode'] = 'manual'; ov['chamfer_left'] = newVal; },
-      'ca1': () => { ov['ca_mode_' + previewIndex] = 'manual'; ov['ca_' + previewIndex + '_left'] = newVal; },
-      'ca2': () => { ov['ca_mode_' + previewIndex] = 'manual'; ov['ca_' + previewIndex + '_right'] = newVal; },
-      'n_val': () => { ov['N_mode'] = 'manual'; ov['N_manual'] = newVal; },
+      'chamfer': () => {
+        ov['chamfer_mode_' + previewIndex] = 'manual';
+        ov['chamfer_' + previewIndex + '_left'] = newVal;
+        ov['chamfer_' + previewIndex + '_right'] = newVal;
+      },
+      'ca1': () => {
+        ov['ca_mode_' + previewIndex] = 'manual';
+        ov['ca_' + previewIndex + '_left'] = newVal;
+        if (!ov['ca_' + previewIndex + '_right']) {
+          ov['ca_' + previewIndex + '_right'] = displayedValue('ca2');
+        }
+      },
+      'ca2': () => {
+        ov['ca_mode_' + previewIndex] = 'manual';
+        ov['ca_' + previewIndex + '_right'] = newVal;
+        if (!ov['ca_' + previewIndex + '_left']) {
+          ov['ca_' + previewIndex + '_left'] = displayedValue('ca1');
+        }
+      },
+      'n_val': () => { ov['proc_N_mode'] = 'manual'; ov['proc_N_manual'] = newVal; },
     };
     const cementedDirectFields = {
-      'vendor': () => {},
+      'vendor': () => { ov['proc_vendor'] = newVal; },
       'ranking': () => { ov['proc_ranking'] = newVal; },
       'c_val': () => { ov['proc_c_single'] = newVal; },
       'dn_val': () => { ov['proc_DN'] = newVal; },
@@ -260,13 +310,17 @@ function onFieldEdit(e) {
   } else {
     // 单片镜片或整体页：修改全局表单控件
     const calcFields = {
-      'chamfer': () => { setParam('chamfer_mode', 'manual'); setParam('chamfer_left', newVal); },
+      'chamfer': () => {
+        setParam('chamfer_mode', 'manual');
+        setParam('chamfer_left', newVal);
+        setParam('chamfer_right', newVal);
+      },
       'ca1': () => { setParam('CA_mode', 'manual'); setParam('CA1', newVal); },
       'ca2': () => { setParam('CA_mode', 'manual'); setParam('CA2', newVal); },
       'n_val': () => { setParam('N_mode', 'manual'); setParam('N_manual', newVal); },
     };
     const directFields = {
-      'vendor': () => {},
+      'vendor': () => { setParam('proc_vendor', newVal); },
       'ranking': () => { setParam('proc_ranking', newVal); },
       'c_val': () => { setParam('proc_c_single', newVal); },
       'dn_val': () => { setParam('DN', newVal); },
@@ -300,15 +354,177 @@ function getLensType() {
   return el ? el.value : 'single';
 }
 
+function apertureEntries(type = getLensType()) {
+  const state = apertureStates[type];
+  const entries = [];
+  const add = (key, surface, splitKey = null) => {
+    entries.push({ key, surface, splitKey });
+  };
+
+  add('outerLeft', '镜片1左');
+  if (type === 'single') {
+    add('outerRight', '镜片1右');
+    return entries;
+  }
+
+  add('interface1Left', state.split1 ? '镜片1右' : '胶合面1，共用', 'split1');
+  if (state.split1) add('interface1Right', '镜片2左');
+
+  if (type === 'doublet') {
+    add('outerRight', '镜片2右');
+    return entries;
+  }
+
+  add('interface2Left', state.split2 ? '镜片2右' : '胶合面2，共用', 'split2');
+  if (state.split2) add('interface2Right', '镜片3左');
+  add('outerRight', '镜片3右');
+  return entries;
+}
+
+function renderApertureFields(type = getLensType()) {
+  const container = document.getElementById('aperture-fields');
+  if (!container) return;
+
+  const state = apertureStates[type];
+  container.innerHTML = '';
+  apertureEntries(type).forEach((entry, index) => {
+    const row = document.createElement('div');
+    row.className = 'param-row aperture-row';
+
+    const label = document.createElement('label');
+    label.htmlFor = `AD${index + 1}`;
+    label.textContent = `AD${index + 1} (${entry.surface})`;
+    row.appendChild(label);
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'aperture-input-wrap';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.01';
+    input.id = `AD${index + 1}`;
+    input.dataset.apertureKey = entry.key;
+    input.value = state[entry.key];
+    input.addEventListener('input', () => {
+      state[entry.key] = input.value;
+      if (entry.key === 'interface1Left' && !state.split1) {
+        state.interface1Right = input.value;
+      }
+      if (entry.key === 'interface2Left' && !state.split2) {
+        state.interface2Right = input.value;
+      }
+      refreshPreview();
+    });
+    inputWrap.appendChild(input);
+
+    if (entry.splitKey) {
+      const splitLabel = document.createElement('label');
+      splitLabel.className = 'aperture-split-control';
+      splitLabel.title = '勾选后胶合面两侧使用独立 AD；取消分离不会删除已输入的独立数值';
+      const splitInput = document.createElement('input');
+      splitInput.type = 'checkbox';
+      splitInput.checked = Boolean(state[entry.splitKey]);
+      const interfaceNumber = entry.splitKey === 'split1' ? '1' : '2';
+      splitInput.setAttribute('aria-label', `胶合面${interfaceNumber} AD 分离`);
+      const splitText = document.createElement('span');
+      splitText.textContent = '分离';
+      splitLabel.append(splitInput, splitText);
+      splitInput.addEventListener('change', () => {
+        state[entry.splitKey] = splitInput.checked;
+        renderApertureFields(type);
+        refreshPreview();
+      });
+      inputWrap.appendChild(splitLabel);
+    }
+
+    row.appendChild(inputWrap);
+    container.appendChild(row);
+  });
+}
+
+function apertureNumber(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function getApertureModel(type = getLensType()) {
+  const state = apertureStates[type];
+  const sequence = apertureEntries(type).map(entry => apertureNumber(state[entry.key]));
+
+  if (type === 'single') {
+    return {
+      sequence,
+      split1: false,
+      split2: false,
+      lenses: [{ left: sequence[0], right: sequence[1] }],
+    };
+  }
+
+  const interface1Right = state.split1 ? state.interface1Right : state.interface1Left;
+  if (type === 'doublet') {
+    return {
+      sequence,
+      split1: Boolean(state.split1),
+      split2: false,
+      lenses: [
+        { left: apertureNumber(state.outerLeft), right: apertureNumber(state.interface1Left) },
+        { left: apertureNumber(interface1Right), right: apertureNumber(state.outerRight) },
+      ],
+    };
+  }
+
+  const interface2Right = state.split2 ? state.interface2Right : state.interface2Left;
+  return {
+    sequence,
+    split1: Boolean(state.split1),
+    split2: Boolean(state.split2),
+    lenses: [
+      { left: apertureNumber(state.outerLeft), right: apertureNumber(state.interface1Left) },
+      { left: apertureNumber(interface1Right), right: apertureNumber(state.interface2Left) },
+      { left: apertureNumber(interface2Right), right: apertureNumber(state.outerRight) },
+    ],
+  };
+}
+
+function setAperturesFromBatchRow(row, type) {
+  const value = (key, fallback = '') => String(row[key] ?? fallback);
+  if (type === 'single') {
+    apertureStates.single = {
+      outerLeft: value('AD1'),
+      outerRight: value('AD2'),
+    };
+  } else if (type === 'doublet') {
+    apertureStates.doublet = {
+      outerLeft: value('AD1'),
+      interface1Left: value('AD2'),
+      interface1Right: value('AD2'),
+      outerRight: value('AD3'),
+      split1: false,
+    };
+  } else {
+    apertureStates.triplet = {
+      outerLeft: value('AD1'),
+      interface1Left: value('AD2'),
+      interface1Right: value('AD2'),
+      interface2Left: value('AD3'),
+      interface2Right: value('AD3'),
+      outerRight: value('AD4'),
+      split1: false,
+      split2: false,
+    };
+  }
+  renderApertureFields(type);
+}
+
 function buildLenses(params) {
+  const apertures = params.lens_apertures;
   const lenses = [{
     glass: params.glass_name,
     T: params.T,
     R_left: params.R1,
     R_right: params.R2,
     MD: params.MD,
-    AD_left: params.AD1,
-    AD_right: params.AD2,
+    AD_left: apertures[0].left,
+    AD_right: apertures[0].right,
   }];
   if (params.lens_type !== 'single') {
     lenses.push({
@@ -317,8 +533,8 @@ function buildLenses(params) {
       R_left: params.R2,
       R_right: params.R3,
       MD: params.MD2,
-      AD_left: params.AD2,
-      AD_right: params.AD3,
+      AD_left: apertures[1].left,
+      AD_right: apertures[1].right,
     });
   }
   if (params.lens_type === 'triplet') {
@@ -328,8 +544,8 @@ function buildLenses(params) {
       R_left: params.R3,
       R_right: params.R4,
       MD: params.MD3,
-      AD_left: params.AD3,
-      AD_right: params.AD4,
+      AD_left: apertures[2].left,
+      AD_right: apertures[2].right,
     });
   }
   return lenses;
@@ -337,6 +553,7 @@ function buildLenses(params) {
 
 function updateLensTypeUI() {
   const type = getLensType();
+  renderApertureFields(type);
   const l2Fields = document.querySelectorAll('.lens2-field');
   const l3Fields = document.querySelectorAll('.lens3-field');
 
@@ -422,6 +639,7 @@ function collectParams() {
     const el = document.getElementById(id);
     return el ? el.checked : false;
   };
+  const apertureModel = getApertureModel();
 
   return {
     lens_type: getLensType(),
@@ -430,8 +648,8 @@ function collectParams() {
     R1: getNum('R1'),
     R2: getNum('R2'),
     MD: getNum('MD'),
-    AD1: getNum('AD1'),
-    AD2: getNum('AD2'),
+    AD1: apertureModel.sequence[0] || 0,
+    AD2: apertureModel.sequence[1] || 0,
     CA1: getVal('CA1'),
     CA2: getVal('CA2'),
     CA_mode: getVal('CA_mode'),
@@ -445,13 +663,18 @@ function collectParams() {
     T2: getNum('T2'),
     R3: getNum('R3'),
     MD2: getNum('MD2'),
-    AD3: getNum('AD3'),
+    AD3: apertureModel.sequence[2] || 0,
 
     glass3: getVal('glass3'),
     T3: getNum('T3'),
     R4: getNum('R4'),
     MD3: getNum('MD3'),
-    AD4: getNum('AD4'),
+    AD4: apertureModel.sequence[3] || 0,
+    AD5: apertureModel.sequence[4] || 0,
+    AD6: apertureModel.sequence[5] || 0,
+    interface_split_1: apertureModel.split1,
+    interface_split_2: apertureModel.split2,
+    lens_apertures: apertureModel.lenses,
 
     coat_preset: getVal('coat_preset'),
 
@@ -478,6 +701,7 @@ function collectParams() {
     N_manual: getVal('N_manual'),
     DN: getVal('DN'),
     signature: getVal('signature'),
+    proc_vendor: getVal('proc_vendor'),
 
     chamfer_mode: getVal('chamfer_mode'),
     chamfer_left: getNum('chamfer_left'),
@@ -547,6 +771,7 @@ async function refreshPreview() {
             N_manual: params.N_manual,
             DN: params.DN,
             signature: params.signature,
+            proc_vendor: params.proc_vendor,
             chamfer_mode: params.chamfer_mode,
             chamfer_left: params.chamfer_left,
             chamfer_right: params.chamfer_right,
@@ -558,6 +783,12 @@ async function refreshPreview() {
             dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
             cemented_ref_lens: params.cemented_ref_lens,
             coat_preset: params.coat_preset,
+            coat_s1_wave1: params.coat_s1_wave1, coat_s1_wave2: params.coat_s1_wave2,
+            coat_s2_wave1: params.coat_s2_wave1, coat_s2_wave2: params.coat_s2_wave2,
+            coat_s1_ravg1: params.coat_s1_ravg1, coat_s1_ravg2: params.coat_s1_ravg2,
+            coat_s2_ravg1: params.coat_s2_ravg1, coat_s2_ravg2: params.coat_s2_ravg2,
+            coat_s1_angle1: params.coat_s1_angle1, coat_s1_angle2: params.coat_s1_angle2,
+            coat_s2_angle1: params.coat_s2_angle1, coat_s2_angle2: params.coat_s2_angle2,
             ca_ratio: params.ca_ratio,
             ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
             ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
@@ -627,6 +858,7 @@ async function doExport(fullpath) {
           N_manual: params.N_manual,
           DN: params.DN,
           signature: params.signature,
+          proc_vendor: params.proc_vendor,
           chamfer_mode: params.chamfer_mode,
           chamfer_left: params.chamfer_left,
           chamfer_right: params.chamfer_right,
@@ -638,6 +870,12 @@ async function doExport(fullpath) {
           dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
           cemented_ref_lens: params.cemented_ref_lens,
           coat_preset: params.coat_preset,
+          coat_s1_wave1: params.coat_s1_wave1, coat_s1_wave2: params.coat_s1_wave2,
+          coat_s2_wave1: params.coat_s2_wave1, coat_s2_wave2: params.coat_s2_wave2,
+          coat_s1_ravg1: params.coat_s1_ravg1, coat_s1_ravg2: params.coat_s1_ravg2,
+          coat_s2_ravg1: params.coat_s2_ravg1, coat_s2_ravg2: params.coat_s2_ravg2,
+          coat_s1_angle1: params.coat_s1_angle1, coat_s1_angle2: params.coat_s1_angle2,
+          coat_s2_angle1: params.coat_s2_angle1, coat_s2_angle2: params.coat_s2_angle2,
           ca_ratio: params.ca_ratio,
           ca_mode_1: params.ca_mode_1, ca_1_left: params.ca_1_left, ca_1_right: params.ca_1_right,
           ca_mode_2: params.ca_mode_2, ca_2_left: params.ca_2_left, ca_2_right: params.ca_2_right,
@@ -750,6 +988,7 @@ async function resetParams() {
   };
 
   const merged = { ...defaults, ...geometryDefaults };
+  apertureStates = createDefaultApertureStates(merged);
 
   for (const [id, val] of Object.entries(merged)) {
     const el = document.getElementById(id);
@@ -829,14 +1068,15 @@ function updateChamferInputs() {
 function bindEvents() {
   // Parameter inputs → debounced preview
   const paramIds = [
-    'T','R1','R2','MD','AD1','AD2',
+    'T','R1','R2','MD',
     'CA1','CA2','part_name','part_no','glass_name',
-    'glass2','T2','R3','MD2','AD3',
-    'glass3','T3','R4','MD3','AD4',
+    'glass2','T2','R3','MD2',
+    'glass3','T3','R4','MD3',
     'coat_s1_wave1','coat_s1_wave2','coat_s2_wave1','coat_s2_wave2',
     'coat_s1_ravg1','coat_s1_ravg2','coat_s2_ravg1','coat_s2_ravg2',
     'coat_s1_angle1','coat_s1_angle2','coat_s2_angle1','coat_s2_angle2',
     'proc_c_single','proc_c_assembly','proc_b','proc_ranking','signature',
+    'proc_vendor',
     'N_mode','N_manual','DN',
     'ca_ratio',
     'chamfer_mode','chamfer_left','chamfer_right',
@@ -949,6 +1189,7 @@ async function loadDrawDefaults() {
       proc_N_manual: 'N_manual',
       proc_DN: 'DN',
       proc_signature: 'signature',
+      proc_vendor: 'proc_vendor',
       ca_ratio: 'ca_ratio',
       chamfer_mode: 'chamfer_mode',
       chamfer_left: 'chamfer_left',
@@ -1019,7 +1260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 注册父窗口消息监听（在 loadDrawDefaults 之后，确保不会被通用设置覆盖）
     window.addEventListener('message', onParentMessage);
     // 通知父页面 iframe 已就绪，可以发送数据
-    window.parent.postMessage({ type: 'iframe-ready' }, '*');
+    window.parent.postMessage({ type: 'iframe-ready' }, window.location.origin);
   } else {
     refreshPreview();
   }
@@ -1050,16 +1291,17 @@ function inferLensTypeFromRow(row) {
 
 function applyOverrides(overrides) {
   if (!overrides || typeof overrides !== 'object') return;
-  // 字段 ID 映射：overrides key → draw.html input ID
+  // Canonical keys are persisted; legacy aliases keep older sessions usable.
   const fieldMap = {
     proc_c_single: 'proc_c_single',
     proc_c_assembly: 'proc_c_assembly',
-    proc_b: 'proc_b',
+    proc_surface_defect: 'proc_b',
     proc_ranking: 'proc_ranking',
-    N_mode: 'N_mode',
-    N_manual: 'N_manual',
-    DN: 'DN',
-    signature: 'signature',
+    proc_N_mode: 'N_mode',
+    proc_N_manual: 'N_manual',
+    proc_DN: 'DN',
+    proc_signature: 'signature',
+    proc_vendor: 'proc_vendor',
     chamfer_mode: 'chamfer_mode',
     chamfer_left: 'chamfer_left',
     chamfer_right: 'chamfer_right',
@@ -1094,10 +1336,23 @@ function applyOverrides(overrides) {
     chamfer_mode_2: 'chamfer_mode_2', chamfer_2_left: 'chamfer_2_left', chamfer_2_right: 'chamfer_2_right',
     chamfer_mode_3: 'chamfer_mode_3', chamfer_3_left: 'chamfer_3_left', chamfer_3_right: 'chamfer_3_right',
   };
+  const legacyAliases = {
+    proc_b: 'proc_surface_defect',
+    N_mode: 'proc_N_mode',
+    N_manual: 'proc_N_manual',
+    DN: 'proc_DN',
+    signature: 'proc_signature',
+  };
+  const normalized = { ...overrides };
+  for (const [legacyKey, canonicalKey] of Object.entries(legacyAliases)) {
+    if (normalized[canonicalKey] === undefined && normalized[legacyKey] !== undefined) {
+      normalized[canonicalKey] = normalized[legacyKey];
+    }
+  }
   for (const [key, elId] of Object.entries(fieldMap)) {
-    if (overrides[key] !== undefined) {
+    if (elId && normalized[key] !== undefined) {
       const el = document.getElementById(elId);
-      if (el) el.value = overrides[key];
+      if (el) el.value = normalized[key];
     }
   }
   // 更新条件显示的 UI 元素
@@ -1108,6 +1363,7 @@ function applyOverrides(overrides) {
 }
 
 function onParentMessage(e) {
+  if (e.origin !== window.location.origin || e.source !== window.parent) return;
   const data = e.data;
   if (!data) return;
 
@@ -1124,10 +1380,10 @@ function onParentMessage(e) {
     // 将行数据的几何参数写入表单（预览使用实际镜片参数）
     const rowFieldMap = {
       glass1: 'glass_name', T1: 'T', R1: 'R1', R2: 'R2',
-      MD1: 'MD', AD1: 'AD1', AD2: 'AD2',
+      MD1: 'MD',
       part_name: 'part_name', part_no: 'part_no',
-      glass2: 'glass2', T2: 'T2', R3: 'R3', MD2: 'MD2', AD3: 'AD3',
-      glass3: 'glass3', T3: 'T3', R4: 'R4', MD3: 'MD3', AD4: 'AD4',
+      glass2: 'glass2', T2: 'T2', R3: 'R3', MD2: 'MD2',
+      glass3: 'glass3', T3: 'T3', R4: 'R4', MD3: 'MD3',
     };
     for (const [rowKey, elId] of Object.entries(rowFieldMap)) {
       if (row[rowKey] !== undefined && row[rowKey] !== '') {
@@ -1135,6 +1391,7 @@ function onParentMessage(e) {
         if (el) el.value = row[rowKey];
       }
     }
+    setAperturesFromBatchRow(row, lensType);
 
     // 应用已有覆盖参数
     applyOverrides(overrides);
@@ -1161,12 +1418,13 @@ function saveAndReturn() {
   const overrides = {
     proc_c_single: params.proc_c_single,
     proc_c_assembly: params.proc_c_assembly,
-    proc_b: params.proc_b,
+    proc_surface_defect: params.proc_b,
     proc_ranking: params.proc_ranking,
-    N_mode: params.N_mode,
-    N_manual: params.N_manual,
-    DN: params.DN,
-    signature: params.signature,
+    proc_N_mode: params.N_mode,
+    proc_N_manual: params.N_manual,
+    proc_DN: params.DN,
+    proc_signature: params.signature,
+    proc_vendor: params.proc_vendor,
     chamfer_mode: params.chamfer_mode,
     chamfer_left: params.chamfer_left,
     chamfer_right: params.chamfer_right,
@@ -1202,5 +1460,8 @@ function saveAndReturn() {
     chamfer_mode_3: params.chamfer_mode_3, chamfer_3_left: params.chamfer_3_left, chamfer_3_right: params.chamfer_3_right,
     page_overrides: pageOverrides,
   };
-  window.parent.postMessage({ type: 'draw-save', payload: overrides }, '*');
+  window.parent.postMessage(
+    { type: 'draw-save', payload: overrides },
+    window.location.origin,
+  );
 }

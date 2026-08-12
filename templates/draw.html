@@ -111,23 +111,8 @@
           <input type="number" step="0.01" id="MD3" value="12">
         </div>
 
-        <!-- Clear Aperture -->
-        <div class="param-row">
-          <label>AD1 (左净口径)</label>
-          <input type="number" step="0.01" id="AD1" value="13.5">
-        </div>
-        <div class="param-row">
-          <label>AD2 (右净口径)</label>
-          <input type="number" step="0.01" id="AD2" value="13.5">
-        </div>
-        <div class="param-row lens2-field">
-          <label>AD3 (右净口径)</label>
-          <input type="number" step="0.01" id="AD3" value="12">
-        </div>
-        <div class="param-row lens3-field">
-          <label>AD4 (右净口径)</label>
-          <input type="number" step="0.01" id="AD4" value="12">
-        </div>
+        <!-- Clear Aperture: rows are generated from the actual surface sequence. -->
+        <div id="aperture-fields"></div>
 
         <div class="card-divider dashed"></div>
 
@@ -247,6 +232,7 @@
           <label>Signature</label>
           <input type="text" id="signature" value="l.y.h">
         </div>
+        <input type="hidden" id="proc_vendor" value="CDGM">
         <div class="param-row">
           <label>玻璃品级</label>
           <select id="proc_ranking">
