@@ -48,12 +48,14 @@
       <div class="settings-row"><label>ΔN 默认值</label><input type="text" id="proc_DN" value="0.3"></div>
       <div class="settings-row"><label>署名</label><input type="text" id="proc_signature" value="l.y.h"></div>
       <div class="settings-row"><label>玻璃厂商</label><input type="text" id="proc_vendor" value="CDGM"></div>
+      <div class="settings-row"><label>Scribe&Break/Molding</label><input type="text" id="proc_molding" value="Molding"></div>
       <div class="settings-row">
         <label>玻璃品级</label>
-        <select id="proc_ranking">
-          <option value="01">01</option>
-          <option value="00 ND±0.0003%  VD±0.3%">00 ND±0.0003%  VD±0.3%</option>
-        </select>
+        <input type="text" id="proc_ranking" list="ranking-options-settings" value="01">
+        <datalist id="ranking-options-settings">
+          <option value="01"></option>
+          <option value="00 ND±0.0003%  VD±0.3%"></option>
+        </datalist>
       </div>
       <div class="settings-row">
         <label>CA 自动计算系数
@@ -123,7 +125,7 @@
         <select id="coat_preset">
           <option value="Custom">自定义</option>
           <option value="SQ-A1">SQ-A1</option>
-          <option value="SQ-A3">SQ-A3</option>
+          <option value="SQ-A6">SQ-A6</option>
           <option value="SQ-A5">SQ-A5</option>
         </select>
       </div>
@@ -218,7 +220,7 @@
     't_tol','sag_tol',
     'dia_tol_pos_upper','dia_tol_pos_lower','dia_tol_nonpos_upper','dia_tol_nonpos_lower','cemented_ref_lens',
     'chamfer_mode','chamfer_left','chamfer_right',
-    'proc_c_single','proc_c_assembly','proc_surface_defect','proc_N_mode','proc_N_manual','proc_DN','proc_signature','proc_vendor','proc_ranking',
+    'proc_c_single','proc_c_assembly','proc_surface_defect','proc_N_mode','proc_N_manual','proc_DN','proc_signature','proc_vendor','proc_ranking','proc_molding',
     'ca_ratio',
     'coat_preset',
     'coat_s1_wave1','coat_s1_wave2','coat_s2_wave1','coat_s2_wave2',
@@ -302,7 +304,7 @@
       dia_tol_nonpos_upper: 0.05, dia_tol_nonpos_lower: 0.10,
       cemented_ref_lens: '2',
       chamfer_mode: 'auto', chamfer_left: 0.2, chamfer_right: 0.4,
-      proc_c_single: '60″', proc_c_assembly: '60″', proc_surface_defect: '60/40', proc_N_mode: 'auto', proc_N_manual: '1.5', proc_DN: '0.3', proc_signature: 'l.y.h', proc_vendor: 'CDGM', proc_ranking: '01',
+      proc_c_single: '60″', proc_c_assembly: '60″', proc_surface_defect: '60/40', proc_N_mode: 'auto', proc_N_manual: '1.5', proc_DN: '0.3', proc_signature: 'l.y.h', proc_vendor: 'CDGM', proc_ranking: '01', proc_molding: 'Molding',
       ca_ratio: 0.94,
       coat_preset: 'SQ-A1',
       coat_s1_wave1: '420-680', coat_s1_wave2: '850/940', coat_s2_wave1: '420-680', coat_s2_wave2: '850/940',

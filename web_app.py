@@ -107,7 +107,7 @@ _DRAW_OVERRIDE_ALIASES = {
 _DRAW_OVERRIDE_KEYS = {
     "proc_c_single", "proc_c_assembly", "proc_surface_defect",
     "proc_ranking", "proc_N_mode", "proc_N_manual", "proc_DN",
-    "proc_signature", "proc_vendor",
+    "proc_signature", "proc_vendor", "proc_molding", "sapphire_surfaces",
     "chamfer_mode", "chamfer_left", "chamfer_right",
     "CA_mode", "CA1", "CA2", "ca_ratio",
     "t_tol", "sag_tol",
@@ -149,6 +149,23 @@ def _normalize_drawing_overrides(overrides, *, keep_unknown=False):
         if canonical_key not in normalized and legacy_key in normalized:
             normalized[canonical_key] = normalized[legacy_key]
         normalized.pop(legacy_key, None)
+
+    if normalized.get("coat_preset") == "SQ-A3":
+        normalized["coat_preset"] = "SQ-A6"
+
+    if "sapphire_surfaces" in normalized:
+        surfaces = normalized["sapphire_surfaces"]
+        if surfaces in (None, ""):
+            normalized["sapphire_surfaces"] = []
+        elif not isinstance(surfaces, list):
+            raise ValueError("蓝宝石膜表面 sapphire_surfaces 必须是数组")
+        else:
+            cleaned = []
+            for surface in surfaces:
+                value = str(surface).strip()
+                if value and value not in cleaned:
+                    cleaned.append(value)
+            normalized["sapphire_surfaces"] = cleaned
 
     for key in _NUMERIC_DRAW_OVERRIDE_KEYS:
         if key not in normalized or normalized[key] in (None, ""):
@@ -448,6 +465,11 @@ def _coerce_finite_float(value, label):
 def _params_from_request():
     """Extract lens parameters from JSON request body."""
     data = request.get_json(force=True) or {}
+    sapphire_surfaces = data.get("sapphire_surfaces", [])
+    if sapphire_surfaces in (None, ""):
+        sapphire_surfaces = []
+    if not isinstance(sapphire_surfaces, list):
+        raise ValueError("蓝宝石膜表面 sapphire_surfaces 必须是数组")
     return {
         "T": _safe_float(data, "T", DEFAULTS["T"]),
         "R1": _safe_float(data, "R1", DEFAULTS["R1"]),
@@ -474,7 +496,10 @@ def _params_from_request():
         "coat_s1_angle2": data.get("coat_s1_angle2", "0-15"),
         "coat_s2_angle1": data.get("coat_s2_angle1", "0-15"),
         "coat_s2_angle2": data.get("coat_s2_angle2", "0-15"),
-        "coat_preset": data.get("coat_preset", _current_settings.get("coat_preset", "SQ-A1")),
+        "coat_preset": (
+            "SQ-A6" if data.get("coat_preset") == "SQ-A3"
+            else data.get("coat_preset", _current_settings.get("coat_preset", "SQ-A1"))
+        ),
         "proc_c_single": data.get("proc_c_single", _current_settings.get("proc_c_single", "60\u2033")),
         "proc_c_assembly": data.get("proc_c_assembly", _current_settings.get("proc_c_assembly", "60\u2033")),
         "proc_b": data.get(
@@ -495,6 +520,8 @@ def _params_from_request():
         ),
         "proc_vendor": data.get("proc_vendor", _current_settings.get("proc_vendor", "CDGM")),
         "proc_ranking": data.get("proc_ranking", _current_settings.get("proc_ranking", "01")),
+        "proc_molding": data.get("proc_molding", _current_settings.get("proc_molding", "Molding")),
+        "sapphire_surfaces": sapphire_surfaces,
         # Chamfer overrides from draw module
         "chamfer_mode": data.get("chamfer_mode", _current_settings.get("chamfer_mode", "auto")),
         "chamfer_left": _safe_float(data, "chamfer_left", _current_settings.get("chamfer_left", 0.2)),
@@ -514,6 +541,8 @@ def _params_from_request():
 def _validate_single_drawing_options(p, ad_left, ad_right):
     """Validate process controls that can make a geometrically valid drawing misleading."""
     errors = []
+    if p.get("sapphire_surfaces"):
+        errors.append("单片镜片不能设置胶合内表面蓝宝石膜")
     ratio = p["ca_ratio"]
     if not 0 < ratio <= 1:
         errors.append("CA 自动系数必须大于 0 且不大于 1")
@@ -597,6 +626,7 @@ def _build_proc_params(p):
         "proc_signature": p["signature"],
         "proc_vendor": p["proc_vendor"],
         "proc_ranking": p.get("proc_ranking", "01"),
+        "proc_molding": p.get("proc_molding", "Molding"),
         # Chamfer
         "chamfer_mode": p.get("chamfer_mode", "auto"),
         "chamfer_left": p.get("chamfer_left", 0.2),
@@ -627,6 +657,7 @@ def _fig_to_preview_response(fig, is_cemented_single=False, field_values=None):
 
     # 1. 提取精确 BBox 位置（在 PREVIEW_DPI 下渲染）
     actual_positions = extract_field_positions(fig, PREVIEW_DPI)
+    field_options = _extract_tagged_field_options(fig)
 
     # 2. 渲染 PNG（DPI 已恢复为原值，savefig 会再次渲染）
     buf = io.BytesIO()
@@ -645,7 +676,7 @@ def _fig_to_preview_response(fig, is_cemented_single=False, field_values=None):
     for f in fields_raw:
         if f["id"] in actual_positions:
             pos = actual_positions[f["id"]]
-            fields.append({
+            item = {
                 "id": f["id"],
                 "label": f["label"],
                 "left_pct": pos["left_pct"],
@@ -654,7 +685,11 @@ def _fig_to_preview_response(fig, is_cemented_single=False, field_values=None):
                 "h_pct": pos["h_pct"],
                 "source": f["source"],
                 "value": field_values.get(f["id"], ""),
-            })
+            }
+            item.update(field_options.get(f["id"], {}))
+            fields.append(item)
+        elif f.get("requires_position"):
+            continue
         else:
             # fallback: 硬编码坐标
             fields.append({
@@ -674,11 +709,35 @@ def _extract_tagged_field_values(fig):
     """Read editable values from the rendered Figure itself."""
     values = {}
     for axis in fig.axes:
-        for text_obj in axis.texts:
-            field_id = getattr(text_obj, "_field_id", None)
+        for artist in [*axis.texts, *axis.patches]:
+            field_id = getattr(artist, "_field_id", None)
             if field_id:
-                values[field_id] = text_obj.get_text()
+                if hasattr(artist, "_field_value"):
+                    values[field_id] = artist._field_value
+                elif hasattr(artist, "get_text"):
+                    values[field_id] = artist.get_text()
     return values
+
+
+def _extract_tagged_field_options(fig):
+    """Read optional editor metadata attached to Figure artists."""
+    metadata = {}
+    for axis in fig.axes:
+        for artist in [*axis.texts, *axis.patches]:
+            field_id = getattr(artist, "_field_id", None)
+            if not field_id:
+                continue
+            item = {}
+            for attr, key in (
+                ("_field_kind", "kind"),
+                ("_field_options", "options"),
+                ("_surface_key", "surface_key"),
+            ):
+                if hasattr(artist, attr):
+                    item[key] = getattr(artist, attr)
+            if item:
+                metadata[field_id] = item
+    return metadata
 
 # ══════════════════════════════════════════════════════════════════════
 #  Page Routes
@@ -909,6 +968,22 @@ def _validate_cemented_drawing_options(settings, lenses):
     """Validate and normalize custom drawing controls for cemented lenses."""
     errors = []
 
+    valid_sapphire_surfaces = {
+        surface
+        for index in range(1, len(lenses))
+        for surface in (f"{index}:S2", f"{index + 1}:S1")
+    }
+    sapphire_surfaces = settings.get("sapphire_surfaces", [])
+    if sapphire_surfaces in (None, ""):
+        sapphire_surfaces = []
+    if not isinstance(sapphire_surfaces, list):
+        errors.append("蓝宝石膜表面必须是数组")
+        sapphire_surfaces = []
+    invalid_surfaces = sorted(set(sapphire_surfaces) - valid_sapphire_surfaces)
+    if invalid_surfaces:
+        errors.append(f"蓝宝石膜表面无效: {', '.join(invalid_surfaces)}")
+    settings["sapphire_surfaces"] = list(dict.fromkeys(sapphire_surfaces))
+
     def finite_setting(key, label, default=None):
         raw = settings.get(key, default)
         try:
@@ -1054,6 +1129,7 @@ def api_preview_cemented():
                 is_single = label.startswith("镜片")
                 if is_single:
                     field_values = _extract_tagged_field_values(fig)
+                    field_options = _extract_tagged_field_options(fig)
                     # 用 BBox 提取精确位置
                     actual_positions = extract_field_positions(fig, PREVIEW_DPI)
                     raw = get_preview_field_metadata(is_cemented_single=True)
@@ -1061,7 +1137,7 @@ def api_preview_cemented():
                     for f in raw:
                         if f["id"] in actual_positions:
                             pos = actual_positions[f["id"]]
-                            page_fields.append({
+                            item = {
                                 "id": f["id"], "label": f["label"],
                                 "left_pct": pos["left_pct"],
                                 "top_pct": pos["top_pct"],
@@ -1069,7 +1145,11 @@ def api_preview_cemented():
                                 "h_pct": pos["h_pct"],
                                 "source": f["source"],
                                 "value": field_values.get(f["id"], ""),
-                            })
+                            }
+                            item.update(field_options.get(f["id"], {}))
+                            page_fields.append(item)
+                        elif f.get("requires_position"):
+                            continue
                         else:
                             page_fields.append({
                                 "id": f["id"], "label": f["label"],

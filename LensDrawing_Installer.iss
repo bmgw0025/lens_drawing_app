@@ -3,7 +3,7 @@
 ; 配合 build_v5.py 生成的 LensDrawing_v5 目录使用
 
 #define MyAppName "LensDrawing"
-#define MyAppVersion "3.4"
+#define MyAppVersion "3.5"
 #define MyAppPublisher "Lens Drawing Tool Team"
 #define MyAppExeName "LensDrawing.exe"
 
@@ -14,7 +14,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=3.4.0.0
+VersionInfoVersion=3.5.0.0
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 ; 输出设置
@@ -49,7 +49,7 @@ Source: "{#SourcePath}\dist\LensDrawing\LensDrawing.exe"; DestDir: "{app}"; Flag
 ; _internal 目录 (所有依赖)
 Source: "{#SourcePath}\dist\LensDrawing\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 面向软件使用人员的版本说明
-Source: "{#SourcePath}\V3.4_版本更新说明.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}\V3.5_版本更新说明.md"; DestDir: "{app}"; Flags: ignoreversion
 ; VC++ Redistributable
 Source: "{#SourcePath}\installer_deps\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 ; WebView2 Runtime (如果存在) - 使用实际的 Evergreen Standalone Installer 文件名
@@ -57,7 +57,7 @@ Source: "{#SourcePath}\installer_deps\MicrosoftEdgeWebView2RuntimeInstallerX64.e
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\V3.4 版本更新说明"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\V3.4_版本更新说明.md"""
+Name: "{group}\V3.5 版本更新说明"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\V3.5_版本更新说明.md"""
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 

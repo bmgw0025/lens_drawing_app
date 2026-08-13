@@ -13,7 +13,7 @@ from batch_import import (
 )
 from main import _build_lens_page_context
 from settings import DEFAULT_SETTINGS
-from web_app import app, batch_export_data_list
+from web_app import app, batch_export_data_list, _normalize_drawing_overrides
 
 
 def single_item(name="Lens-N15", number="100.1"):
@@ -31,6 +31,7 @@ class ParameterContractTests(unittest.TestCase):
             "proc_b": "20/10",
             "DN": "0.15",
             "signature": "tester",
+            "proc_molding": "ROW-MOLD",
             "coat_preset": "Custom",
             "coat_s1_wave1": "511-522",
             "CA_mode": "manual",
@@ -59,6 +60,7 @@ class ParameterContractTests(unittest.TestCase):
         self.assertEqual(effective["proc_surface_defect"], "20/10")
         self.assertEqual(effective["proc_DN"], "0.15")
         self.assertEqual(effective["proc_signature"], "tester")
+        self.assertEqual(effective["proc_molding"], "ROW-MOLD")
         self.assertEqual(effective["coat_s1_wave1"], "511-522")
         self.assertEqual(effective["chamfer_left"], 0.11)
         self.assertEqual(effective["t_tol"], 0.013)
@@ -85,6 +87,7 @@ class ParameterContractTests(unittest.TestCase):
                 "1": {
                     "proc_N_manual": 1.4,
                     "proc_vendor": "PAGE-VENDOR",
+                    "proc_molding": "PAGE-MOLD",
                     "coat_s1_wave1": "600-610",
                 }
             },
@@ -92,6 +95,7 @@ class ParameterContractTests(unittest.TestCase):
         )
         self.assertEqual(context["proc_params"]["proc_N_manual"], 1.4)
         self.assertEqual(context["proc_params"]["proc_vendor"], "PAGE-VENDOR")
+        self.assertEqual(context["proc_params"]["proc_molding"], "PAGE-MOLD")
         self.assertEqual(context["proc_params"]["coat_s1_wave1"], "600-610")
 
     def test_single_preview_fields_match_rendered_custom_values(self):
@@ -108,6 +112,10 @@ class ParameterContractTests(unittest.TestCase):
             "proc_b": "20/10",
             "DN": "0.15",
             "signature": "tester",
+            "proc_molding": "PREVIEW-MOLD",
+            "CA_mode": "manual",
+            "CA1": "12.34",
+            "CA2": "11.23",
         }
         with app.test_client() as client:
             data = client.post("/api/preview", json=payload).get_json()
@@ -119,6 +127,51 @@ class ParameterContractTests(unittest.TestCase):
         self.assertEqual(values["b_val"], "20/10")
         self.assertEqual(values["dn_val"], "0.15")
         self.assertEqual(values["signature"], "tester")
+        self.assertEqual(values["molding"], "PREVIEW-MOLD")
+        self.assertEqual(values["ca1"], "12.34")
+        self.assertEqual(values["ca2"], "11.23")
+
+    def test_legacy_custom_proc_migrates_sq_a3_and_keeps_sapphire_array(self):
+        normalized = _normalize_drawing_overrides({
+            "coat_preset": "SQ-A3",
+            "sapphire_surfaces": ["1:S2", "1:S2", "2:S1"],
+        })
+        self.assertEqual(normalized["coat_preset"], "SQ-A6")
+        self.assertEqual(normalized["sapphire_surfaces"], ["1:S2", "2:S1"])
+
+    def test_single_preview_rejects_sapphire_surface(self):
+        payload = {
+            "T": 4.7, "R1": -35, "R2": 30, "MD": 19,
+            "AD1": 15, "AD2": 13, "sapphire_surfaces": ["1:S2"],
+        }
+        with app.test_client() as client:
+            data = client.post("/api/preview", json=payload).get_json()
+        self.assertFalse(data["success"])
+        self.assertIn("单片镜片不能设置", data["error"])
+
+    def test_single_preview_migrates_legacy_sq_a3(self):
+        payload = {
+            "T": 4.7, "R1": -35, "R2": 30, "MD": 19,
+            "AD1": 15, "AD2": 13, "coat_preset": "SQ-A3",
+        }
+        with app.test_client() as client:
+            data = client.post("/api/preview", json=payload).get_json()
+        self.assertTrue(data["success"], data.get("error"))
+
+    def test_invalid_page_sapphire_surface_is_rejected(self):
+        lenses = [
+            SingleLensData("G1", 4, -30, 25, 30, 24, 22),
+            SingleLensData("G2", 5, 25, -40, 28, 22, 18),
+        ]
+        data = CementedLensData("invalid-sapphire", "TEST", lenses)
+        with self.assertRaisesRegex(ValueError, "蓝宝石膜表面无效"):
+            from main import export_cemented_pdf
+            with tempfile.TemporaryDirectory() as output_dir:
+                export_cemented_pdf(
+                    data, DEFAULT_SETTINGS.copy(),
+                    os.path.join(output_dir, "invalid.pdf"),
+                    page_overrides={"1": {"sapphire_surfaces": ["3:S1"]}},
+                )
 
     def test_excel_roundtrip_preserves_flat_radius_and_custom_proc(self):
         row = {
@@ -137,8 +190,10 @@ class ParameterContractTests(unittest.TestCase):
                 "proc_N_mode": "manual",
                 "proc_N_manual": "1.5",
                 "proc_vendor": "ROUNDTRIP",
+                "coat_preset": "SQ-A3",
+                "sapphire_surfaces": ["1:S2", "2:S1"],
                 "page_overrides": {
-                    "1": {"proc_surface_defect": "20/10"}
+                    "1": {"proc_surface_defect": "20/10", "coat_preset": "SQ-A3"}
                 },
             },
         }
@@ -153,9 +208,12 @@ class ParameterContractTests(unittest.TestCase):
         self.assertEqual(len(items[0].lenses), 1)
         self.assertEqual(items[0].proc_overrides["proc_N_manual"], "1.5")
         self.assertEqual(items[0].proc_overrides["proc_vendor"], "ROUNDTRIP")
+        self.assertEqual(items[0].proc_overrides["coat_preset"], "SQ-A6")
+        self.assertEqual(items[0].proc_overrides["sapphire_surfaces"], ["1:S2", "2:S1"])
         self.assertEqual(
             items[0].page_overrides["1"]["proc_surface_defect"], "20/10"
         )
+        self.assertEqual(items[0].page_overrides["1"]["coat_preset"], "SQ-A6")
 
     def test_batch_parse_api_keeps_zero_and_marks_missing_lenses_empty(self):
         row = {

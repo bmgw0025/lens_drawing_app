@@ -142,7 +142,7 @@
           <select id="coat_preset">
             <option value="Custom">自定义</option>
             <option value="SQ-A1">SQ-A1</option>
-            <option value="SQ-A3">SQ-A3</option>
+            <option value="SQ-A6">SQ-A6</option>
             <option value="SQ-A5">SQ-A5</option>
           </select>
         </div>
@@ -234,11 +234,16 @@
         </div>
         <input type="hidden" id="proc_vendor" value="CDGM">
         <div class="param-row">
+          <label>Scribe&Break/Molding</label>
+          <input type="text" id="proc_molding" value="Molding">
+        </div>
+        <div class="param-row">
           <label>玻璃品级</label>
-          <select id="proc_ranking">
-            <option value="01">01</option>
-            <option value="00 ND±0.0003%  VD±0.3%">00 ND±0.0003%  VD±0.3%</option>
-          </select>
+          <input type="text" id="proc_ranking" list="ranking-options-draw" value="01">
+          <datalist id="ranking-options-draw">
+            <option value="01"></option>
+            <option value="00 ND±0.0003%  VD±0.3%"></option>
+          </datalist>
         </div>
 
         <div class="card-divider"></div>

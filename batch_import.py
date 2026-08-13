@@ -175,9 +175,21 @@ def parse_row(row_dict: Dict[str, Any]) -> CementedLensData:
         if not isinstance(custom_proc, dict):
             raise ValueError("CustomProc 必须是 JSON 对象")
         custom_proc = custom_proc.copy()
+        if custom_proc.get("coat_preset") == "SQ-A3":
+            custom_proc["coat_preset"] = "SQ-A6"
         page_overrides = custom_proc.pop("page_overrides", None)
         if page_overrides is not None and not isinstance(page_overrides, dict):
             raise ValueError("CustomProc.page_overrides 必须是对象")
+        if page_overrides:
+            migrated_pages = {}
+            for page, values in page_overrides.items():
+                if not isinstance(values, dict):
+                    raise ValueError(f"CustomProc.page_overrides.{page} 必须是对象")
+                migrated = values.copy()
+                if migrated.get("coat_preset") == "SQ-A3":
+                    migrated["coat_preset"] = "SQ-A6"
+                migrated_pages[str(page)] = migrated
+            page_overrides = migrated_pages
 
     from config import validate_cemented_lenses
     geometry_errors = validate_cemented_lenses(lenses)

@@ -96,6 +96,59 @@ class GeometryValidationTests(unittest.TestCase):
         self.assertEqual(data["labels"], ["整体", "镜片1", "镜片2", "镜片3"])
         self.assertEqual(len(data["images"]), 4)
 
+    def test_cemented_preview_exposes_sapphire_selects_in_inner_cells(self):
+        payload = {
+            "lenses": [
+                {
+                    "glass": lens.glass,
+                    "T": lens.T,
+                    "R_left": lens.R_left,
+                    "R_right": lens.R_right,
+                    "MD": lens.MD,
+                    "AD_left": lens.AD_left,
+                    "AD_right": lens.AD_right,
+                }
+                for lens in split_triplet()
+            ],
+            "part_name": "sapphire-selects",
+            "part_no": "TEST",
+            "sapphire_surfaces": ["1:S2", "2:S1"],
+        }
+        with app.test_client() as client:
+            data = client.post("/api/preview/cemented", json=payload).get_json()
+        self.assertTrue(data["success"], data.get("error"))
+
+        selectors_by_page = []
+        for fields in data["fields_by_page"][1:]:
+            selectors_by_page.append({
+                field["surface_key"]: field
+                for field in fields
+                if field.get("source") == "surface"
+            })
+
+        self.assertEqual([set(page) for page in selectors_by_page], [
+            {"1:S2"},
+            {"2:S1", "2:S2"},
+            {"3:S1"},
+        ])
+        expected_values = {
+            "1:S2": "蓝宝石膜",
+            "2:S1": "蓝宝石膜",
+            "2:S2": "",
+            "3:S1": "",
+        }
+        for page in selectors_by_page:
+            for surface, field in page.items():
+                self.assertEqual(field["kind"], "select")
+                self.assertEqual(field["value"], expected_values[surface])
+                self.assertEqual(
+                    field["options"],
+                    [
+                        {"value": "", "label": "空白"},
+                        {"value": "蓝宝石膜", "label": "蓝宝石膜"},
+                    ],
+                )
+
     def test_invalid_page_override_fails_before_pdf_is_created(self):
         data = CementedLensData("preflight", "TEST", split_triplet())
         settings = DEFAULT_SETTINGS.copy()

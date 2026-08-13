@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lens Drawing Tool v3.4"""
+"""Lens Drawing Tool v3.5"""
 import sys,os,math,io
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import matplotlib
@@ -8,11 +8,26 @@ matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 from matplotlib.figure import Figure
 from matplotlib.patches import Polygon, Rectangle
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib import font_manager
 import matplotlib.pyplot as plt
 from geometry import build_profile
 from config import auto_chamfer,auto_CA,auto_N
 from datetime import datetime
 from batch_import import CementedLensData, SingleLensData
+
+
+def _cjk_font_properties():
+    for family in ("Microsoft YaHei", "SimHei", "SimSun"):
+        try:
+            font_manager.findfont(family, fallback_to_default=False)
+            return font_manager.FontProperties(family=family)
+        except ValueError:
+            continue
+    return font_manager.FontProperties()
+
+
+_CJK_FONT = _cjk_font_properties()
 
 # ════════════════════════════════════════════════════════════════════════════
 # Lane-based 标注布局管理器 —— 解决胶合页多片标注重叠问题
@@ -192,24 +207,66 @@ def _calc_et(T,R1,R2,AD1,AD2):
     elif R1>0 and R2>0: return T+s2-s1
     return T
 
+
+def _dimension_text_with_leader(ax, line_start_x, text_x, y, text,
+                                font_size, J, ha="left", direction="right",
+                                leader_id=None, fontproperties=None):
+    """Draw dimension text and extend its leader beyond the rendered text BBox."""
+    artist = ax.text(
+        text_x, y + font_size * 0.01, text,
+        ha=ha, va="bottom", fontsize=font_size, color="black", zorder=7,
+        fontproperties=fontproperties,
+    )
+    if not getattr(ax, "_dimension_renderer_ready", False):
+        canvas = FigureCanvasAgg(ax.figure)
+        canvas.draw()
+        ax._dimension_canvas = canvas
+        ax._dimension_renderer = canvas.get_renderer()
+        ax._dimension_renderer_ready = True
+    renderer = ax._dimension_renderer
+    bbox = artist.get_window_extent(renderer=renderer)
+    x0 = ax.transData.inverted().transform((bbox.x0, bbox.y0))[0]
+    x1 = ax.transData.inverted().transform((bbox.x1, bbox.y1))[0]
+    pad = max(J * 0.35, abs(x1 - x0) * 0.08)
+    candidate = x1 + pad if direction == "right" else x0 - pad
+    groups = getattr(ax, "_dimension_leader_groups", {})
+    group = groups.setdefault(direction, {"target": candidate, "lines": []})
+    if direction == "right":
+        group["target"] = max(group["target"], candidate)
+    else:
+        group["target"] = min(group["target"], candidate)
+    line_end = group["target"]
+    for previous in group["lines"]:
+        xdata = list(previous.get_xdata())
+        xdata[-1] = line_end
+        previous.set_xdata(xdata)
+    line, = ax.plot([line_start_x, line_end], [y, y], "k-", lw=0.8, zorder=5)
+    group["lines"].append(line)
+    groups[direction] = group
+    ax._dimension_leader_groups = groups
+    if leader_id:
+        line.set_gid(f"dimension-leader:{leader_id}")
+        artist.set_gid(f"dimension-text:{leader_id}")
+    return artist, line
+
 # CT（中心厚度）：从左顶点(0,0)和右顶点(T,0)画垂直线向下延伸，在 offset_J 位置画水平尺寸线
 # 箭头分别指向两顶点，文字右对齐标注在右侧，文字底部距水平线 0.01*字号
 def _ann_ct(ax,T,J,offset_J,t_tol,font_size,arrow_scale):
     y_ext=-offset_J*J
     text_str=f"{T:.2f}\u00b1{t_tol:.2f}"
     text_x=T+J*2.5
-    text_width=len(text_str)*font_size*0.7
-    line_end=text_x+text_width*0.15
     ax.plot([0,0],[0,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([T,T],[0,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([0,T],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
-    ax.plot([T,text_x+J*6],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
+    _dimension_text_with_leader(
+        ax, T, text_x, y_ext, text_str, font_size, J,
+        ha="left", direction="right", leader_id="ct",
+    )
     # 左侧向外延伸0.5J引线
     ax.plot([-J*0.5,0],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     aw=J*0.6*arrow_scale
     _arrow(ax,-aw,y_ext,0,y_ext,hs=aw)
     _arrow(ax,T+aw,y_ext,T,y_ext,hs=aw)
-    ax.text(text_x,y_ext+font_size*0.01,text_str,ha="left",va="bottom",fontsize=font_size,color="black",zorder=7)
 
 # ET（边缘厚度）：从左垂直边缘点 C 和右垂直边缘点 F 向上画垂直线，在 offset_J 位置画水平尺寸线
 # 文字居中于 C 和 F 中点，底部距水平线 0.01*字号
@@ -217,18 +274,18 @@ def _ann_et(ax,C,F,ET,J,offset_J,font_size,arrow_scale,text_x=None):
     y_ext=J*offset_J
     text_str=f"({ET:.2f})"
     text_x=text_x if text_x is not None else (C[0]+F[0])/2.0
-    text_width=len(text_str)*font_size*0.7
-    line_end=text_x+text_width*0.15
     ax.plot([C[0],C[0]],[C[1],y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([F[0],F[0]],[F[1],y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([C[0],F[0]],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
-    ax.plot([F[0],text_x+J*2],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
+    _dimension_text_with_leader(
+        ax, F[0], text_x, y_ext, text_str, font_size, J,
+        ha="center", direction="right", leader_id="et",
+    )
     # 左侧向外延伸0.5J引线
     ax.plot([C[0],C[0]-J*0.5],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     aw=J*0.6*arrow_scale
     _arrow(ax,C[0]-aw,y_ext,C[0],y_ext,hs=aw)
     _arrow(ax,F[0]+aw,y_ext,F[0],y_ext,hs=aw)
-    ax.text(text_x,y_ext+font_size*0.01,text_str,ha="center",va="bottom",fontsize=font_size,color="black",zorder=7)
 
 # Diameter（直径）：从右端点 F 向右水平画线，上下边缘各画一条，垂直封口形成标注框
 # 文字使用 LaTeX 堆叠公差格式，上公差和下公差独立设置，垂直旋转90°书写
@@ -271,13 +328,14 @@ def _ann_sag1(ax,A,B,Sag1,MD,J,offset_J,font_size,arrow_scale,need_tol,sag_tol=0
     y_ext=-offset_J*J
     val_str=f"{Sag1:.2f}\u00b1{sag_tol:.2f}" if need_tol else f"({Sag1:.2f})"
     text_x=A[0]-J*2.5
-    text_width=len(val_str)*font_size*0.7
-    line_end=text_x-text_width*0.15
     ax.plot([A[0],A[0]],[0,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([Bp[0],Bp[0]],[-Bp[1],y_ext],"k-",lw=0.8,zorder=5)
 
     # 托线从A[0]延伸到text_x，覆盖文字下方
-    ax.plot([A[0],text_x-J*6],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
+    _dimension_text_with_leader(
+        ax, A[0], text_x, y_ext, val_str, font_size, J,
+        ha="right", direction="left", leader_id="sag1",
+    )
 
     # 右侧向外延伸0.5J引线（A[0]右侧，无文字侧）
     ax.plot([A[0],A[0]+J*0.5],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
@@ -291,7 +349,6 @@ def _ann_sag1(ax,A,B,Sag1,MD,J,offset_J,font_size,arrow_scale,need_tol,sag_tol=0
     # 箭头之间的水平连线
     ax.plot([A[0], Bp[0]], [y_ext, y_ext], "k-", lw=0.8, zorder=5)
 
-    ax.text(text_x,y_ext+font_size*0.01,val_str,ha="right",va="bottom",fontsize=font_size,color="black",zorder=7)
 
 # Sag2（右矢高）：文字标注在镜片右侧（E' 点右侧），从 D 点和 E' 点（下方对称点）画垂直线
 # 在 offset_J 位置画水平尺寸线，箭头分别指向 D 和 E'，若 need_tol 为 True 则显示 ±0.02 公差
@@ -300,12 +357,13 @@ def _ann_sag2(ax,D,E,Sag2,MD,J,offset_J,font_size,arrow_scale,need_tol,text_x=No
     y_ext=-offset_J*J
     val_str=f"{Sag2:.2f}\u00b1{sag_tol:.2f}" if need_tol else f"({Sag2:.2f})"
     text_x=text_x if text_x is not None else Ep[0]+J*2.5
-    text_width=len(val_str)*font_size*0.7
-    line_end=text_x+text_width*0.15
     ax.plot([D[0],D[0]],[0,y_ext],"k-",lw=0.8,zorder=5)
     ax.plot([Ep[0],Ep[0]],[-Ep[1],y_ext],"k-",lw=0.8,zorder=5)
     # 托线从D[0]延伸到text_x，覆盖文字下方
-    ax.plot([D[0],text_x+J*6],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
+    _dimension_text_with_leader(
+        ax, D[0], text_x, y_ext, val_str, font_size, J,
+        ha="left", direction="right", leader_id="sag2",
+    )
     # 左侧向外延伸0.5J引线（D[0]左侧）
     ax.plot([D[0]-J*0.5,D[0]],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
     aw=J*0.6*arrow_scale
@@ -313,7 +371,6 @@ def _ann_sag2(ax,D,E,Sag2,MD,J,offset_J,font_size,arrow_scale,need_tol,text_x=No
     _arrow(ax,Ep[0]+aw,y_ext,Ep[0],y_ext,hs=aw)
     # D到Ep之间的水平连线
     ax.plot([D[0], Ep[0]], [y_ext, y_ext], "k-", lw=0.8, zorder=5)
-    ax.text(text_x,y_ext+font_size*0.01,val_str,ha="left",va="bottom",fontsize=font_size,color="black",zorder=7)
 
 # CA1（左口径）：从左垂直边缘 B 点向左画水平引线，上下边缘各一条，垂直封口
 # 口径使用 AD1/2 作为半高（非 MD/2），文字垂直书写在延伸线左侧
@@ -498,6 +555,8 @@ def draw_lens(ax,T,R1,R2,MD,AD1,AD2,
               chamfer_left,chamfer_right,t_tol,sag_tol,font_size,arrow_scale,r_offset_J=0.8,
               dia_tol_upper=0.010,dia_tol_lower=0.025):
     ax.clear(); J=MD*J_mult
+    ax._dimension_renderer_ready = False
+    ax._dimension_leader_groups = {}
     profile,pts=build_profile(T,R1,R2,MD,AD1,AD2)
     A,B,C,D,E,F=pts["A"],pts["B"],pts["C"],pts["D"],pts["E"],pts["F"]
     xa,ya=[],[]
@@ -641,6 +700,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     var_gn = proc_params.get("glass_name","H-K9L")
     var_vnd= s("proc_vendor", "CDGM")
     var_rnk= s("proc_ranking","01")
+    var_molding = s("proc_molding", "Molding")
     # 镀膜波段
     w_s1_1=proc_params.get("coat_s1_wave1","420-680")
     w_s1_2=proc_params.get("coat_s1_wave2","680-850")
@@ -679,50 +739,75 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     tx_x, tx_y = 18, 195
     line_h = 3.0
     fs = 7.5
+    def _tag_field_region(field_id, x0, y0, x1, y1):
+        region = Rectangle(
+            (x0, y0), x1-x0, y1-y0,
+            facecolor="none", edgecolor="none", zorder=10,
+        )
+        region._field_id = field_id
+        region._field_region = True
+        ax_page.add_patch(region)
+        return region
+
     def _tx(dx, dy, text, bold=False, f=fs):
         w = "bold" if bold else "normal"
         return ax_page.text(tx_x+dx, tx_y+dy, text, ha="left", va="bottom", fontsize=f, color="black", fontweight=w)
-    def _tx_pair(dx, dy, label, value, field_id=None):
+    def _tx_pair(dx, dy, label, value, field_id=None, field_width=38):
         _tx(dx, dy, label, f=fs)
-        t = _tx(dx+42, dy, value, f=fs)
+        value_x = tx_x + dx + 42
+        value_y = tx_y + dy
+        t = ax_page.text(value_x, value_y, value, ha="left", va="bottom", fontsize=fs, color="black")
         if field_id:
             t._field_id = field_id
+            _tag_field_region(
+                field_id,
+                value_x - 0.8, value_y - 0.65,
+                value_x + field_width, value_y + line_h - 0.35,
+            )
 
     if is_cemented_single:
         # 胶合单片页：无Spraying段，序号重编
         _tx(0, 0, "1.Material", bold=True)
-        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor")
-        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking")
-        _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", "Molding")
+        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor", field_width=36)
+        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking", field_width=52)
+        _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", var_molding, field_id="molding", field_width=44)
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer", field_width=18)
         _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
         _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
         t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
         t_ca1._field_id = "ca1"
+        t_ca1._field_value = f"{CA1:.2f}"
+        _tag_field_region("ca1", 91.2, tx_y-line_h*9.5-0.65, 112.5, tx_y-line_h*8.5-0.35)
         t_ca2 = _tx(4+42+52, -line_h*9.5, f"S2 φ{CA2:.2f}", f=fs)
         t_ca2._field_id = "ca2"
+        t_ca2._field_value = f"{CA2:.2f}"
+        _tag_field_region("ca2", 115.2, tx_y-line_h*9.5-0.65, 136.5, tx_y-line_h*8.5-0.35)
         _tx(0, -line_h*11, "4.The rest", bold=True)
         _tx(4, -line_h*12, "roughness", f=fs)
         tri_x, tri_y = tx_x+10, tx_y-line_h*14; tri_w = 3; tri_h = tri_w * 1.732
     else:
         # 独立单片页：完整5段
         _tx(0, 0, "1.Material", bold=True)
-        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor")
-        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking")
-        _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", "Molding")
+        _tx_pair(4, -line_h, "Vendor/Brand:", var_vnd, field_id="vendor", field_width=36)
+        _tx_pair(4, -line_h*2, "Ranking:", var_rnk, field_id="ranking", field_width=52)
+        _tx_pair(4, -line_h*3, "Scribe&Break/Molding:", var_molding, field_id="molding", field_width=44)
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer", field_width=18)
         _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
         _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
         t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
         t_ca1._field_id = "ca1"
+        t_ca1._field_value = f"{CA1:.2f}"
+        _tag_field_region("ca1", 91.2, tx_y-line_h*9.5-0.65, 112.5, tx_y-line_h*8.5-0.35)
         t_ca2 = _tx(4+42+52, -line_h*9.5, f"S2 φ{CA2:.2f}", f=fs)
         t_ca2._field_id = "ca2"
+        t_ca2._field_value = f"{CA2:.2f}"
+        _tag_field_region("ca2", 115.2, tx_y-line_h*9.5-0.65, 136.5, tx_y-line_h*8.5-0.35)
         _tx(0, -line_h*11, "4.Spraying", bold=True)
         _tx_pair(4, -line_h*12, "Ink Brand&Model:", "GT-7II")
         _tx_pair(4, -line_h*13, "Ink Proportion:", "8: 1: 9(Paint: Curing agent: Diluent)")
@@ -835,6 +920,11 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         t = ax_page.text(x, y, text, ha=ha, va="center", fontsize=f, color="black")
         if field_id:
             t._field_id = field_id
+            _tag_field_region(
+                field_id,
+                cum[col_idx], rows_y[row_idx],
+                cum[col_idx+1], rows_y[row_idx+1],
+            )
     def _cellL(row_idx, col_idx, text, f=6.5):
         x = cum[col_idx] + 1.5
         y = rows_y[row_idx] + row_h/2 - 0.5
@@ -846,35 +936,89 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         t = ax_page.text(x, y, text, ha="center", va="center", fontsize=f, color="black", linespacing=0.85)
         if field_id:
             t._field_id = field_id
+            _tag_field_region(
+                field_id,
+                cum[col_idx], rows_y[row_idx],
+                cum[col_idx+1], rows_y[row_idx+2],
+            )
 
     # Coating Preset 判断
     coat_preset = (proc_params or {}).get("coat_preset", settings.get("coat_preset", "Custom") if settings else "Custom")
     has_outer_s1 = proc_params.get("has_outer_s1", True) if proc_params else True
     has_outer_s2 = proc_params.get("has_outer_s2", True) if proc_params else True
+    sapphire_s1 = bool(proc_params.get("sapphire_s1", False)) if proc_params else False
+    sapphire_s2 = bool(proc_params.get("sapphire_s2", False)) if proc_params else False
+
+    def _coating_region(row_start, row_end):
+        rx0, ry0 = cum[3], rows_y[row_start]
+        rx1, ry1 = cum[6], rows_y[row_end]
+        return rx0, ry0, rx1, ry1
+
+    def _tag_coating_selector(row_start, row_end, field_id, value, surface_key):
+        rx0, ry0, rx1, ry1 = _coating_region(row_start, row_end)
+        region = Rectangle(
+            (rx0, ry0), rx1-rx0, ry1-ry0,
+            facecolor="none", edgecolor="none", zorder=5,
+        )
+        region._field_id = field_id
+        region._field_value = value
+        region._field_kind = "select"
+        region._field_options = [
+            {"value": "", "label": "空白"},
+            {"value": "蓝宝石膜", "label": "蓝宝石膜"},
+        ]
+        region._surface_key = surface_key
+        ax_page.add_patch(region)
+
+    def _merge_coating_value(row_start, row_end, text, fontproperties=None):
+        rx0, ry0, rx1, ry1 = _coating_region(row_start, row_end)
+        ax_page.add_patch(Rectangle(
+            (rx0, ry0), rx1-rx0, ry1-ry0,
+            facecolor="white", edgecolor="none", zorder=3,
+        ))
+        ax_page.plot(
+            [rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0],
+            "k-", lw=0.6, zorder=3,
+        )
+        if text:
+            ax_page.text(
+                (rx0+rx1)/2, (ry0+ry1)/2, text,
+                ha="center", va="center", fontsize=6.5, color="black", zorder=4,
+                fontproperties=fontproperties,
+            )
 
     # 若使用Preset，先画合并单元格覆盖内部小线（只合并Wavelength/Ravg/Angle，保留左侧Surface列）
     # 无论是否有镀膜，都画合并单元格（保持视觉一致），仅在需要镀膜时填充文字
     if coat_preset != "Custom":
         # S1
-        rx0, ry0 = cum[3], rows_y[2]
-        rx1, ry1 = cum[6], rows_y[4]
-        ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
-        ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
-        if has_outer_s1:
-            ax_page.text((rx0+rx1)/2, (ry0+ry1)/2, coat_preset, ha="center", va="center", fontsize=6.5, color="black", zorder=4)
+        _merge_coating_value(2, 4, coat_preset if has_outer_s1 else "")
         # S2
-        rx0, ry0 = cum[3], rows_y[0]
-        rx1, ry1 = cum[6], rows_y[2]
-        ax_page.add_patch(Rectangle((rx0, ry0), rx1-rx0, ry1-ry0, facecolor="white", edgecolor="none", zorder=3))
-        ax_page.plot([rx0, rx1, rx1, rx0, rx0], [ry0, ry0, ry1, ry1, ry0], "k-", lw=0.6, zorder=3)
-        if has_outer_s2:
-            ax_page.text((rx0+rx1)/2, (ry0+ry1)/2, coat_preset, ha="center", va="center", fontsize=6.5, color="black", zorder=4)
+        _merge_coating_value(0, 2, coat_preset if has_outer_s2 else "")
+
+    if sapphire_s1:
+        _merge_coating_value(2, 4, "蓝宝石膜", _CJK_FONT)
+    if sapphire_s2:
+        _merge_coating_value(0, 2, "蓝宝石膜", _CJK_FONT)
+
+    # 胶合内表面的膜层直接在预览表格中选择，不占用侧栏空间。
+    if is_cemented_single and not has_outer_s1:
+        _tag_coating_selector(
+            2, 4, "sapphire_s1",
+            "蓝宝石膜" if sapphire_s1 else "",
+            proc_params.get("sapphire_s1_key", ""),
+        )
+    if is_cemented_single and not has_outer_s2:
+        _tag_coating_selector(
+            0, 2, "sapphire_s2",
+            "蓝宝石膜" if sapphire_s2 else "",
+            proc_params.get("sapphire_s2_key", ""),
+        )
 
     # row3 (C) - S1第一组镀膜数据
     _cell(3, 0, "C", f=6.5)
     _cell(3, 1, var_c, f=6.5, field_id="c_val")
     _cell_merge(2, 2, "S1")  # 合并S1单元格
-    if coat_preset == "Custom" or not has_outer_s1:
+    if not sapphire_s1 and (coat_preset == "Custom" or not has_outer_s1):
         _cell(3, 3, w_s1_1)
         _cell(3, 4, r_s1_1)
         _cell(3, 5, a_s1_1)
@@ -888,7 +1032,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     # row2 (N) - S1第二组镀膜数据
     _cell(2, 0, "N", f=6.5)
     _cell(2, 1, str(N_val), f=6.5, field_id="n_val")
-    if coat_preset == "Custom" or not has_outer_s1:
+    if not sapphire_s1 and (coat_preset == "Custom" or not has_outer_s1):
         _cell(2, 3, w_s1_2)
         _cell(2, 4, r_s1_2)
         _cell(2, 5, a_s1_2)
@@ -896,7 +1040,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     _cell(1, 0, "ΔN", f=6.5)
     _cell(1, 1, str(s("proc_DN", "0.3", "DN")), f=6.5, field_id="dn_val")
     _cell_merge(0, 2, "S2")  # 合并S2单元格
-    if coat_preset == "Custom" or not has_outer_s2:
+    if not sapphire_s2 and (coat_preset == "Custom" or not has_outer_s2):
         _cell(1, 3, w_s2_1)
         _cell(1, 4, r_s2_1)
         _cell(1, 5, a_s2_1)
@@ -905,7 +1049,7 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     # row0 (B) - S2第二组镀膜数据
     _cell(0, 0, "B", f=6.5)
     _cell(0, 1, var_b, f=6.5, field_id="b_val")
-    if coat_preset == "Custom" or not has_outer_s2:
+    if not sapphire_s2 and (coat_preset == "Custom" or not has_outer_s2):
         _cell(0, 3, w_s2_2)
         _cell(0, 4, r_s2_2)
         _cell(0, 5, a_s2_2)
@@ -1104,6 +1248,8 @@ def draw_cemented_assembly(ax, lenses_data,
     - 直径公差：定位镜片用定位公差，其余用非定位公差
     """
     ax.clear()
+    ax._dimension_renderer_ready = False
+    ax._dimension_leader_groups = {}
     max_MD=max(l.MD for l in lenses_data)
     J=max_MD*J_mult
 
@@ -1153,6 +1299,12 @@ def draw_cemented_assembly(ax, lenses_data,
 
     total_T=sum(l.T for l in lenses_data)
     total_t_tol=sum(t_tol for _ in lenses_data)
+    xm=J*5
+    x_limits=(min(all_x)-xm-J*8,max(all_x)+xm+J*16)
+    y_limits=(min(all_y)-J*14,max(all_y)+J*12)
+    ax.set_xlim(*x_limits)
+    ax.set_ylim(*y_limits)
+    ax.set_aspect("equal")
 
     # ── 厚度标注（合并为总和，置于右侧） ──
     y_ext=-J*ct_offset_J
@@ -1163,12 +1315,11 @@ def draw_cemented_assembly(ax, lenses_data,
     _arrow(ax,-aw,y_ext,0,y_ext,hs=aw)
     _arrow(ax,total_T+aw,y_ext,total_T,y_ext,hs=aw)
     text_x=total_T+J*2.5
-    # 托线：从total_T延伸到文字右侧
     text_str=f"{total_T:.2f}\u00b1{total_t_tol:.2f}"
-    text_width=len(text_str)*font_size*0.7
-    ax.plot([total_T,text_x+text_width*0.15],[y_ext,y_ext],"k-",lw=0.8,zorder=5)
-    ax.text(text_x,y_ext+font_size*0.01,text_str,
-            ha="left",va="bottom",fontsize=font_size,color="black",zorder=7)
+    _dimension_text_with_leader(
+        ax, total_T, text_x, y_ext, text_str, font_size, J,
+        ha="left", direction="right", leader_id="assembly-ct",
+    )
 
     # ── Lane-based 标注布局：直径 + AD（自动避免重叠） ──
     mgr_left = SideAnnotationManager(J, dia_offset_J, lane_spacing_J=3.0,
@@ -1427,9 +1578,8 @@ def draw_cemented_assembly(ax, lenses_data,
     ax.text(total_T+J*2.25-J*0.65,text_y,"S2",ha="right",va="bottom",fontsize=font_size,color="black",zorder=12)
     ax.text(total_T+J*2.25,text_y,"⨁",ha="center",va="bottom",fontsize=big_fs,color="black",zorder=12)
 
-    xm=J*5
-    ax.set_xlim(min(all_x)-xm-J*8,max(all_x)+xm+J*16)
-    ax.set_ylim(min(all_y)-J*14,max(all_y)+J*12)
+    ax.set_xlim(*x_limits)
+    ax.set_ylim(*y_limits)
     ax.set_aspect("equal"); ax.axis("off")
 
 
@@ -1516,67 +1666,73 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
     ax_page.plot([tri_x+tri_w,tri_x+tri_w*2],[tri_y,tri_y+tri_h],"k-",lw=0.8)
     ax_page.text(tri_x,tri_y+1.0,"0.01",ha="center",va="bottom",fontsize=fs,color="black")
 
-    # ── 底部表格（与单片相同布局） ──
-    tbl_x0,tbl_y0=18,10; tbl_x1,tbl_y1=287,45
-    cols=[22,22,18,28,20,20,22,20,22,28,28,19]
-    cum=[tbl_x0]
-    for c in cols: cum.append(cum[-1]+c)
-    row_h=35.0/6
-    rows_y=[tbl_y0+i*row_h for i in range(7)]
-    for i,y in enumerate(rows_y):
-        if i==1:
-            # rows_y[1] 在 PartNo/PartName 列不画 + Surface 列不画（合并S2）
-            ax_page.plot([tbl_x0,cum[2]],[y,y],"k-",lw=0.6)
-            ax_page.plot([cum[3],cum[9]],[y,y],"k-",lw=0.6)
-            ax_page.plot([cum[11],tbl_x1],[y,y],"k-",lw=0.6)
-        elif i==3:
-            # rows_y[3] 在 Surface 列(cum[2]~cum[3])不画（合并S1：row3+row2）
-            ax_page.plot([tbl_x0,cum[2]],[y,y],"k-",lw=0.6)
-            ax_page.plot([cum[3],cum[6]],[y,y],"k-",lw=0.6)
-            ax_page.plot([cum[12],tbl_x1],[y,y],"k-",lw=0.6)
-        elif i==5:
-            ax_page.plot([cum[2],cum[6]],[y,y],"k-",lw=0.6)
-        else:
-            ax_page.plot([tbl_x0,tbl_x1],[y,y],"k-",lw=0.6)
-    for x in cum: ax_page.plot([x,x],[tbl_y0,rows_y[3]],"k-",lw=0.6)
-    for x in cum: ax_page.plot([x,x],[rows_y[3],rows_y[4]],"k-",lw=0.6)
-    for x in [cum[0],cum[2],cum[3],cum[4],cum[5],cum[6],cum[7],cum[8],cum[9],cum[10],cum[11],cum[12]]:
-        ax_page.plot([x,x],[rows_y[2],rows_y[3]],"k-",lw=0.6)
-    for x in [cum[0],cum[2],cum[3],cum[4],cum[5],cum[6],cum[7],cum[8],cum[9],cum[11],cum[12]]:
-        ax_page.plot([x,x],[rows_y[1],rows_y[2]],"k-",lw=0.6)
-        ax_page.plot([x,x],[rows_y[0],rows_y[1]],"k-",lw=0.6)
-    for x in [cum[0],cum[2],cum[3],cum[4],cum[5],cum[6],cum[7],cum[8],cum[9],cum[10],cum[11],cum[12]]:
-        ax_page.plot([x,x],[rows_y[4],rows_y[5]],"k-",lw=0.6)
-    for x in [cum[0],cum[2],cum[6],cum[7],cum[8],cum[9],cum[10],cum[11],cum[12]]:
-        ax_page.plot([x,x],[rows_y[5],rows_y[6]],"k-",lw=0.6)
+    # ── 胶合整体页精简标题栏 ──
+    # 左下只保留胶合页 C；中间镀膜表及无值的 N/ΔN/B 不绘制。
+    # 右侧项目栏保持原坐标和内容，避免不同页之间的项目字段跳动。
+    tbl_y0 = 10
+    row_h = 35.0 / 6
+    rows_y = [tbl_y0 + i * row_h for i in range(7)]
+    left_x = [18, 40, 62]
+    right_x = [148, 170, 190, 212, 240, 268, 287]
 
-    merge_y=(rows_y[5]+rows_y[6])/2; header_y=(rows_y[4]+rows_y[6])/2
-    ax_page.text((cum[0]+cum[2])/2,header_y,"Special technical requirement",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[2]+cum[6])/2,merge_y,"Coating Position⊕",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[6]+cum[7])/2,header_y,"Project",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[7]+cum[8])/2,header_y,"Signature",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[8]+cum[9])/2,header_y,"Date",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[9]+cum[10])/2,header_y,"Part No.",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[10]+cum[11])/2,header_y,"Part Name",ha="center",va="center",fontsize=6.5,color="black")
-    ax_page.text((cum[11]+cum[12])/2,header_y,"Version",ha="center",va="center",fontsize=6.5,color="black")
-    sub_y=(rows_y[4]+rows_y[5])/2
-    for txt,x in [("Surface",(cum[2]+cum[3])/2),("Wavelength(nm)",(cum[3]+cum[4])/2),("Ravg(%)",(cum[4]+cum[5])/2),("Angle(°)",(cum[5]+cum[6])/2)]:
-        ax_page.text(x,sub_y,txt,ha="center",va="center",fontsize=6,color="black")
+    # 左侧两行小表：标题 + C 值，贴齐页面左下。
+    for y in (rows_y[0], rows_y[1], rows_y[2]):
+        ax_page.plot([left_x[0], left_x[-1]], [y, y], "k-", lw=0.6)
+    for x in (left_x[0], left_x[-1]):
+        ax_page.plot([x, x], [rows_y[0], rows_y[2]], "k-", lw=0.6)
+    ax_page.plot([left_x[1], left_x[1]], [rows_y[0], rows_y[1]], "k-", lw=0.6)
+    ax_page.text(
+        (left_x[0] + left_x[-1]) / 2, (rows_y[1] + rows_y[2]) / 2,
+        "Special technical requirement", ha="center", va="center",
+        fontsize=6.5, color="black",
+    )
+    ax_page.text((left_x[0]+left_x[1])/2, (rows_y[0]+rows_y[1])/2-0.5,
+                 "C", ha="center", va="center", fontsize=6.5, color="black")
+    ax_page.text((left_x[1]+left_x[2])/2, (rows_y[0]+rows_y[1])/2-0.5,
+                 var_c, ha="center", va="center", fontsize=6.5, color="black")
 
-    def _cell(ri,ci,text,f=6.5):
-        ax_page.text((cum[ci]+cum[ci+1])/2,rows_y[ri]+row_h/2-0.5,text,ha="center",va="center",fontsize=f,color="black")
-    def _cell_merge(ri,ci,text,f=6.5):
-        ax_page.text((cum[ci]+cum[ci+1])/2,(rows_y[ri]+rows_y[ri+2])/2-0.5,text,ha="center",va="center",fontsize=f,color="black",linespacing=0.85)
+    # 右侧项目栏，边界和合并关系沿用原胶合页布局。
+    for x in right_x:
+        ax_page.plot([x, x], [rows_y[0], rows_y[6]], "k-", lw=0.6)
+    for y in (rows_y[0], rows_y[2], rows_y[4], rows_y[6]):
+        ax_page.plot([right_x[0], right_x[-1]], [y, y], "k-", lw=0.6)
+    ax_page.plot([right_x[0], right_x[3]], [rows_y[1], rows_y[1]], "k-", lw=0.6)
+    ax_page.plot([right_x[5], right_x[-1]], [rows_y[1], rows_y[1]], "k-", lw=0.6)
 
-    _cell(3,0,"C"); _cell(3,1,var_c); _cell_merge(2,2,"S1"); _cell(3,3,""); _cell(3,4,""); _cell(3,5,"")
-    _cell_merge(2,6,"Drafting"); _cell_merge(2,7,var_sig); _cell_merge(2,8,today)
-    _cell_merge(2,9,var_pno); _cell_merge(2,10,var_pn); _cell_merge(2,11,"1.0")
-    _cell(2,0,"N"); _cell(2,1,""); _cell(2,3,""); _cell(2,4,""); _cell(2,5,"")
-    _cell(1,0,"ΔN"); _cell(1,1,""); _cell_merge(0,2,"S2"); _cell(1,3,""); _cell(1,4,""); _cell(1,5,"")
-    _cell(1,6,"Checked"); _cell(1,11,"Page No.")
-    _cell(0,0,"B"); _cell(0,1,""); _cell(0,3,""); _cell(0,4,""); _cell(0,5,"")
-    _cell(0,6,"Approved"); _cell(0,11,f"{page_no}/{total_pages}")
-    _cell_merge(0,9,"Material"); _cell_merge(0,10,var_gn)
+    header_y = (rows_y[4] + rows_y[6]) / 2
+    headers = ["Project", "Signature", "Date", "Part No.", "Part Name", "Version"]
+    for index, text in enumerate(headers):
+        ax_page.text(
+            (right_x[index]+right_x[index+1])/2, header_y, text,
+            ha="center", va="center", fontsize=6.5, color="black",
+        )
+
+    def _right_cell(row_index, col_index, text, f=6.5):
+        ax_page.text(
+            (right_x[col_index]+right_x[col_index+1])/2,
+            rows_y[row_index]+row_h/2-0.5, text,
+            ha="center", va="center", fontsize=f, color="black",
+        )
+
+    def _right_merge(row_index, col_index, text, f=6.5):
+        ax_page.text(
+            (right_x[col_index]+right_x[col_index+1])/2,
+            (rows_y[row_index]+rows_y[row_index+2])/2-0.5, text,
+            ha="center", va="center", fontsize=f, color="black", linespacing=0.85,
+        )
+
+    _right_merge(2, 0, "Drafting")
+    _right_merge(2, 1, var_sig)
+    _right_merge(2, 2, today)
+    _right_merge(2, 3, var_pno)
+    _right_merge(2, 4, var_pn)
+    _right_merge(2, 5, "1.0")
+    _right_cell(1, 0, "Checked")
+    _right_cell(1, 5, "Page No.")
+    _right_cell(0, 0, "Approved")
+    _right_cell(0, 5, f"{page_no}/{total_pages}")
+    _right_merge(0, 3, "Material")
+    _right_merge(0, 4, var_gn)
 
     # ── 镜片组装图 axes ──
     ax_lens=fig.add_axes([90/297,62/210,210/297,130/210])
@@ -1627,16 +1783,30 @@ def get_preview_field_metadata(is_cemented_single=False):
         # 1.Material
         fields.append({"id":"vendor","label":"Vendor","x_mm":val_x,"y_mm":tx_y-line_h,"w_mm":40,"h_mm":3,"source":"setting","key":"proc_vendor"})
         fields.append({"id":"ranking","label":"Ranking","x_mm":val_x,"y_mm":tx_y-line_h*2,"w_mm":50,"h_mm":3,"source":"setting","key":"proc_ranking"})
+        fields.append({"id":"molding","label":"Molding","x_mm":val_x,"y_mm":tx_y-line_h*3,"w_mm":45,"h_mm":3,"source":"setting","key":"proc_molding"})
         # 3.Processing
         fields.append({"id":"chamfer","label":"Chamfer","x_mm":val_x,"y_mm":tx_y-line_h*7.5,"w_mm":20,"h_mm":3,"source":"calc","key":"chamfer_left"})
         # Clear Aperture — 拆分为 CA1 / CA2 两个独立输入框
         ca_y = tx_y - line_h * 9.5
         fields.append({"id":"ca1","label":"CA1","x_mm":74,"y_mm":ca_y,"w_mm":18,"h_mm":3,"source":"calc","key":"CA1"})
         fields.append({"id":"ca2","label":"CA2","x_mm":98,"y_mm":ca_y,"w_mm":18,"h_mm":3,"source":"calc","key":"CA2"})
+        fields.extend([
+            {
+                "id": "sapphire_s1", "label": "S1 内表面镀膜",
+                "source": "surface", "kind": "select",
+                "requires_position": True,
+            },
+            {
+                "id": "sapphire_s2", "label": "S2 内表面镀膜",
+                "source": "surface", "kind": "select",
+                "requires_position": True,
+            },
+        ])
     else:
         # 独立单片页：完整 5 段
         fields.append({"id":"vendor","label":"Vendor","x_mm":val_x,"y_mm":tx_y-line_h,"w_mm":40,"h_mm":3,"source":"setting","key":"proc_vendor"})
         fields.append({"id":"ranking","label":"Ranking","x_mm":val_x,"y_mm":tx_y-line_h*2,"w_mm":50,"h_mm":3,"source":"setting","key":"proc_ranking"})
+        fields.append({"id":"molding","label":"Molding","x_mm":val_x,"y_mm":tx_y-line_h*3,"w_mm":45,"h_mm":3,"source":"setting","key":"proc_molding"})
         fields.append({"id":"chamfer","label":"Chamfer","x_mm":val_x,"y_mm":tx_y-line_h*7.5,"w_mm":20,"h_mm":3,"source":"calc","key":"chamfer_left"})
         ca_y = tx_y - line_h * 9.5
         fields.append({"id":"ca1","label":"CA1","x_mm":74,"y_mm":ca_y,"w_mm":18,"h_mm":3,"source":"calc","key":"CA1"})
@@ -1677,23 +1847,25 @@ def extract_field_positions(fig, dpi=100):
     renderer = RendererAgg(fig_w, fig_h, dpi)
     fig.draw(renderer)
 
-    PAD_PX = 3       # 每侧扩展 3 像素，增大点击区域
-    top_pad = PAD_PX + 1  # 顶部多 1px 补偿基线视觉偏移
+    PAD_PX = 3       # 仅用于没有显式版面热区的旧字段
+    top_pad = PAD_PX + 1
 
     positions = {}
     for ax in fig.axes:
-        for text_obj in ax.texts:
-            fid = getattr(text_obj, '_field_id', None)
+        for artist in [*ax.texts, *ax.patches]:
+            fid = getattr(artist, '_field_id', None)
             if fid is None:
                 continue
-            bbox = text_obj.get_window_extent(renderer=renderer)
-            # bbox 坐标是 display pixels（在指定 dpi 下）
-            # 添加 padding 扩展点击区域，顶部额外偏移补偿基线差异
+            bbox = artist.get_window_extent(renderer=renderer)
+            is_region = bool(getattr(artist, '_field_region', False))
+            pad_x = 0 if is_region else PAD_PX
+            pad_top = 0 if is_region else top_pad
+            pad_bottom = 0 if is_region else PAD_PX
             positions[fid] = {
-                "left_pct": round((bbox.x0 - PAD_PX) / fig_w * 100, 2),
-                "top_pct": round((fig_h - bbox.y1 - top_pad) / fig_h * 100, 2),
-                "w_pct": round((bbox.x1 - bbox.x0 + PAD_PX * 2) / fig_w * 100, 2),
-                "h_pct": round((bbox.y1 - bbox.y0 + top_pad + PAD_PX) / fig_h * 100, 2),
+                "left_pct": round((bbox.x0 - pad_x) / fig_w * 100, 2),
+                "top_pct": round((fig_h - bbox.y1 - pad_top) / fig_h * 100, 2),
+                "w_pct": round((bbox.x1 - bbox.x0 + pad_x * 2) / fig_w * 100, 2),
+                "h_pct": round((bbox.y1 - bbox.y0 + pad_top + pad_bottom) / fig_h * 100, 2),
             }
 
     fig.set_dpi(original_dpi)  # 恢复原 DPI
@@ -1857,6 +2029,20 @@ def _validate_all_lens_page_settings(lenses, settings, page_overrides):
         if not isinstance(page_override, dict):
             raise ValueError(f"第 {page_index} 页加工参数必须是对象")
         lens_settings.update(page_override)
+        sapphire_surfaces = lens_settings.get("sapphire_surfaces", []) or []
+        if not isinstance(sapphire_surfaces, list):
+            raise ValueError("蓝宝石膜表面 sapphire_surfaces 必须是数组")
+        allowed_surfaces = {
+            surface
+            for interface_index in range(1, len(lenses))
+            for surface in (
+                f"{interface_index}:S2",
+                f"{interface_index + 1}:S1",
+            )
+        }
+        invalid_surfaces = sorted(set(sapphire_surfaces) - allowed_surfaces)
+        if invalid_surfaces:
+            raise ValueError(f"蓝宝石膜表面无效: {', '.join(invalid_surfaces)}")
         _validate_lens_page_settings(lens_settings, lens, index)
 
 
@@ -1869,6 +2055,7 @@ _LENS_PAGE_PROC_DEFAULTS = {
     "proc_signature": "l.y.h",
     "proc_vendor": "CDGM",
     "proc_ranking": "01",
+    "proc_molding": "Molding",
     "coat_s1_wave1": "420-680",
     "coat_s1_wave2": "680-850",
     "coat_s2_wave1": "420-680",
@@ -1904,6 +2091,7 @@ def _build_lens_page_context(cemented_data, settings, page_overrides,
 
     has_outer_s1 = lens_index == 0
     has_outer_s2 = lens_index == len(lenses) - 1
+    sapphire_surfaces = lens_settings.get("sapphire_surfaces", []) or []
     proc_params = {
         "part_name": "" if is_multi or hide_partname else cemented_data.part_name,
         "part_no": "" if is_multi else cemented_data.part_no,
@@ -1911,6 +2099,10 @@ def _build_lens_page_context(cemented_data, settings, page_overrides,
         "is_cemented_single": is_multi,
         "has_outer_s1": has_outer_s1,
         "has_outer_s2": has_outer_s2,
+        "sapphire_s1": f"{page_index}:S1" in sapphire_surfaces,
+        "sapphire_s2": f"{page_index}:S2" in sapphire_surfaces,
+        "sapphire_s1_key": f"{page_index}:S1",
+        "sapphire_s2_key": f"{page_index}:S2",
     }
     for key, default in _LENS_PAGE_PROC_DEFAULTS.items():
         proc_params[key] = lens_settings.get(key, default)

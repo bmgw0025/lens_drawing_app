@@ -206,7 +206,7 @@ def main():
         log("Creating webview window...")
         api = JSApi()
         window = webview.create_window(
-            title="Lens Drawing V3.4 - 镜片工程图绘制",
+            title="Lens Drawing V3.5 - 镜片工程图绘制",
             url=url,
             width=520,
             height=720,

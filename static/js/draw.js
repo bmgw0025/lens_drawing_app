@@ -10,6 +10,7 @@ let previewImages = [];    // 多图预览缓存 [{label, b64, fields, img_w, im
 let previewIndex = 0;     // 当前显示的图片索引
 let currentImageBackendSize = null;  // {w, h} 后端返回的实际像素尺寸，用于精确 overlay 定位
 let pageOverrides = {};   // 逐页加工参数覆盖 { pageIndex: { settingKey: value, ... }, ... }
+let sapphireSurfaces = [];
 
 function createDefaultApertureStates(singleDefaults = {}) {
   const ad1 = String(singleDefaults.AD1 ?? '13.5');
@@ -105,6 +106,7 @@ function setPreviewState(state, data = null) {
 /* ── Multi-image preview (cemented) ── */
 function showPreviewImage(index) {
   if (index < 0 || index >= previewImages.length) return;
+  if (activePreviewEditor) closePreviewEditor(true, false);
   previewIndex = index;
   const img = previewImages[index];
   els.previewImg.src = 'data:image/png;base64,' + img.b64;
@@ -142,6 +144,11 @@ function updatePageTabs() {
   });
 }
 
+function clampPreviewIndex(index, imageCount) {
+  if (imageCount <= 0) return 0;
+  return Math.min(Math.max(Number(index) || 0, 0), imageCount - 1);
+}
+
 function setPreviewMulti(images, labels, fieldsByPage, imageSizes) {
   els.previewLoading.style.display = 'none';
   els.previewError.style.display = 'none';
@@ -152,15 +159,17 @@ function setPreviewMulti(images, labels, fieldsByPage, imageSizes) {
     img_w: (imageSizes && imageSizes[i]) ? imageSizes[i].w : null,
     img_h: (imageSizes && imageSizes[i]) ? imageSizes[i].h : null,
   }));
-  previewIndex = 0;
+  previewIndex = clampPreviewIndex(previewIndex, previewImages.length);
   if (previewImages.length > 0) {
-    showPreviewImage(0);
+    showPreviewImage(previewIndex);
   }
   els.previewStatus.textContent = '预览已更新（' + previewImages.length + ' 页）';
 }
 
 /* ── Preview overlays (editable fields on top of image) ── */
 let currentFields = [];
+let activePreviewEditor = null;
+let previewEditorPendingRefresh = false;
 
 function alignOverlayContainer() {
   const img = els.previewImg;
@@ -198,6 +207,7 @@ function alignOverlayContainer() {
 function renderPreviewOverlays(fields) {
   const container = document.getElementById('preview-overlays');
   if (!container) return;
+  closePreviewEditor(false);
   container.innerHTML = '';
   currentFields = fields || [];
   if (!fields || fields.length === 0) return;
@@ -210,62 +220,174 @@ function renderPreviewOverlays(fields) {
 
   fields.forEach(f => {
     const div = document.createElement('div');
-    div.className = 'preview-field';
+    div.className = 'preview-field preview-hotspot';
+    div.dataset.fieldId = f.id;
     div.style.left = f.left_pct + '%';
     div.style.top = f.top_pct + '%';
     div.style.width = f.w_pct + '%';
     div.style.height = f.h_pct + '%';
-
-    let el;
-    if (f.id === 'ranking') {
-      // ranking 字段使用下拉选择，与侧边栏一致
-      el = document.createElement('select');
-      const opts = [
-        { value: '01', label: '01' },
-        { value: '00 ND±0.0003%  VD±0.3%', label: '00 ND±0.0003%  VD±0.3%' },
-      ];
-      opts.forEach(o => {
-        const opt = document.createElement('option');
-        opt.value = o.value;
-        opt.textContent = o.label;
-        if (f.value === o.value) opt.selected = true;
-        el.appendChild(opt);
-      });
-    } else {
-      el = document.createElement('input');
-      el.type = 'text';
-      el.value = f.value || '';
-    }
-    el.title = f.label + (f.source === 'calc' ? '（自动计算，编辑则切为手动）' : '');
-    el.dataset.fieldId = f.id;
-    el.dataset.source = f.source;
-    el.addEventListener('change', onFieldEdit);
-    if (el.tagName === 'INPUT') {
-      el.addEventListener('blur', onFieldEdit);
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { el.blur(); }
-      });
-    }
-    div.appendChild(el);
+    div.tabIndex = 0;
+    div.setAttribute('role', 'button');
+    div.setAttribute('aria-label', `编辑${f.label}：${f.value || '空白'}`);
+    div.title = `编辑${f.label}`;
+    div.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openPreviewEditor(f, div);
+      }
+    });
     container.appendChild(div);
   });
 }
 
-function onFieldEdit(e) {
+function distanceToRectSquared(x, y, rect) {
+  const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+  const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
+  return dx * dx + dy * dy;
+}
+
+function findNearestPreviewHotspot(x, y, maxDistance = 8) {
+  const hotspots = document.querySelectorAll('.preview-hotspot');
+  let nearest = null;
+  let nearestDistance = maxDistance * maxDistance;
+  for (const hotspot of hotspots) {
+    const distance = distanceToRectSquared(x, y, hotspot.getBoundingClientRect());
+    if (distance <= nearestDistance) {
+      nearest = hotspot;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+function closePreviewEditor(commit = false, refreshAfterCommit = true) {
+  if (!activePreviewEditor) {
+    if (refreshAfterCommit && previewEditorPendingRefresh) {
+      previewEditorPendingRefresh = false;
+      refreshPreview();
+    }
+    return;
+  }
+  const { shell, control } = activePreviewEditor;
+  activePreviewEditor = null;
+  if (commit) {
+    onFieldEdit({ target: control }, false);
+    previewEditorPendingRefresh = true;
+  }
+  shell.remove();
+  if (refreshAfterCommit && previewEditorPendingRefresh) {
+    previewEditorPendingRefresh = false;
+    refreshPreview();
+  }
+}
+
+function positionPreviewEditor(shell, hotspot) {
+  const parent = document.getElementById('preview-container');
+  if (!parent) return;
+  const parentRect = parent.getBoundingClientRect();
+  const hotspotRect = hotspot.getBoundingClientRect();
+  const shellRect = shell.getBoundingClientRect();
+  const gap = 6;
+  let left = hotspotRect.left - parentRect.left;
+  let top = hotspotRect.bottom - parentRect.top + gap;
+  if (top + shellRect.height > parentRect.height - gap) {
+    top = hotspotRect.top - parentRect.top - shellRect.height - gap;
+  }
+  left = Math.max(gap, Math.min(left, parentRect.width - shellRect.width - gap));
+  top = Math.max(gap, Math.min(top, parentRect.height - shellRect.height - gap));
+  shell.style.left = left + 'px';
+  shell.style.top = top + 'px';
+}
+
+function openPreviewEditor(field, hotspot) {
+  closePreviewEditor(true, false);
+  const parent = document.getElementById('preview-container');
+  if (!parent) return;
+
+  const shell = document.createElement('div');
+  shell.className = 'preview-editor';
+  shell.addEventListener('click', event => event.stopPropagation());
+
+  const label = document.createElement('label');
+  label.textContent = field.label;
+  shell.appendChild(label);
+
+  let control;
+  if (field.kind === 'select') {
+    control = document.createElement('select');
+    for (const option of field.options || []) {
+      const opt = document.createElement('option');
+      opt.value = option.value;
+      opt.textContent = option.label;
+      control.appendChild(opt);
+    }
+    control.value = field.value || '';
+    control.dataset.surfaceKey = field.surface_key || '';
+    control.addEventListener('change', () => closePreviewEditor(true));
+  } else {
+    control = document.createElement('input');
+    control.type = 'text';
+    control.value = field.value || '';
+    if (field.id === 'ranking') control.setAttribute('list', 'ranking-options-draw');
+    control.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (activePreviewEditor?.control === control) closePreviewEditor(true);
+      }, 0);
+    });
+  }
+  control.dataset.fieldId = field.id;
+  control.dataset.source = field.source;
+  control.dataset.pageIndex = String(previewIndex);
+  control.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      closePreviewEditor(true);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closePreviewEditor(false);
+      hotspot.focus();
+    }
+  });
+  shell.appendChild(control);
+  parent.appendChild(shell);
+  activePreviewEditor = { shell, control, hotspot };
+  positionPreviewEditor(shell, hotspot);
+  control.focus();
+  if (control instanceof HTMLInputElement) control.select();
+}
+
+function onFieldEdit(e, shouldRefresh = true) {
   const inp = e.target;
   const fieldId = inp.dataset.fieldId;
   const source = inp.dataset.source;
   const newVal = inp.value.trim();
-  if (!newVal) return;
+  if (!newVal && source !== 'surface') return;
 
   // 判断是否在胶合镜片的单片页上编辑
   const lensType = getLensType();
-  const isCementedPage = lensType !== 'single' && previewIndex > 0;
+  const editPageIndex = parseInt(inp.dataset.pageIndex || String(previewIndex), 10);
+  const isCementedPage = lensType !== 'single' && editPageIndex > 0;
 
   if (isCementedPage) {
+    if (source === 'surface') {
+      const surfaceKey = inp.dataset.surfaceKey;
+      if (!surfaceKey) return;
+      if (newVal === '蓝宝石膜') {
+        sapphireSurfaces = [...new Set([...sapphireSurfaces, surfaceKey])];
+      } else {
+        sapphireSurfaces = sapphireSurfaces.filter(value => value !== surfaceKey);
+      }
+      for (const override of Object.values(pageOverrides)) {
+        if (override && Object.hasOwn(override, 'sapphire_surfaces')) {
+          delete override.sapphire_surfaces;
+        }
+      }
+      if (shouldRefresh) refreshPreview();
+      return;
+    }
     // 逐页隔离：将编辑存入 pageOverrides
-    if (!pageOverrides[previewIndex]) pageOverrides[previewIndex] = {};
-    const ov = pageOverrides[previewIndex];
+    if (!pageOverrides[editPageIndex]) pageOverrides[editPageIndex] = {};
+    const ov = pageOverrides[editPageIndex];
     const displayedValue = (id) => {
       const field = currentFields.find(item => item.id === id);
       return field ? field.value : '';
@@ -273,22 +395,22 @@ function onFieldEdit(e) {
 
     const cementedCalcFields = {
       'chamfer': () => {
-        ov['chamfer_mode_' + previewIndex] = 'manual';
-        ov['chamfer_' + previewIndex + '_left'] = newVal;
-        ov['chamfer_' + previewIndex + '_right'] = newVal;
+        ov['chamfer_mode_' + editPageIndex] = 'manual';
+        ov['chamfer_' + editPageIndex + '_left'] = newVal;
+        ov['chamfer_' + editPageIndex + '_right'] = newVal;
       },
       'ca1': () => {
-        ov['ca_mode_' + previewIndex] = 'manual';
-        ov['ca_' + previewIndex + '_left'] = newVal;
-        if (!ov['ca_' + previewIndex + '_right']) {
-          ov['ca_' + previewIndex + '_right'] = displayedValue('ca2');
+        ov['ca_mode_' + editPageIndex] = 'manual';
+        ov['ca_' + editPageIndex + '_left'] = newVal;
+        if (!ov['ca_' + editPageIndex + '_right']) {
+          ov['ca_' + editPageIndex + '_right'] = displayedValue('ca2');
         }
       },
       'ca2': () => {
-        ov['ca_mode_' + previewIndex] = 'manual';
-        ov['ca_' + previewIndex + '_right'] = newVal;
-        if (!ov['ca_' + previewIndex + '_left']) {
-          ov['ca_' + previewIndex + '_left'] = displayedValue('ca1');
+        ov['ca_mode_' + editPageIndex] = 'manual';
+        ov['ca_' + editPageIndex + '_right'] = newVal;
+        if (!ov['ca_' + editPageIndex + '_left']) {
+          ov['ca_' + editPageIndex + '_left'] = displayedValue('ca1');
         }
       },
       'n_val': () => { ov['proc_N_mode'] = 'manual'; ov['proc_N_manual'] = newVal; },
@@ -296,6 +418,7 @@ function onFieldEdit(e) {
     const cementedDirectFields = {
       'vendor': () => { ov['proc_vendor'] = newVal; },
       'ranking': () => { ov['proc_ranking'] = newVal; },
+      'molding': () => { ov['proc_molding'] = newVal; },
       'c_val': () => { ov['proc_c_single'] = newVal; },
       'dn_val': () => { ov['proc_DN'] = newVal; },
       'b_val': () => { ov['proc_surface_defect'] = newVal; },
@@ -322,6 +445,7 @@ function onFieldEdit(e) {
     const directFields = {
       'vendor': () => { setParam('proc_vendor', newVal); },
       'ranking': () => { setParam('proc_ranking', newVal); },
+      'molding': () => { setParam('proc_molding', newVal); },
       'c_val': () => { setParam('proc_c_single', newVal); },
       'dn_val': () => { setParam('DN', newVal); },
       'b_val': () => { setParam('proc_b', newVal); },
@@ -334,7 +458,7 @@ function onFieldEdit(e) {
       directFields[fieldId]();
     }
   }
-  refreshPreview();
+  if (shouldRefresh) refreshPreview();
 }
 
 function setParam(id, val) {
@@ -343,6 +467,7 @@ function setParam(id, val) {
 }
 
 function clearPreviewOverlays() {
+  closePreviewEditor(false);
   const container = document.getElementById('preview-overlays');
   if (container) container.innerHTML = '';
   currentFields = [];
@@ -626,6 +751,26 @@ function updateLensTypeUI() {
       refSelect.value = '2';
     }
   }
+  renderSapphireSurfaceOptions(type);
+}
+
+function validSapphireSurfaces(type = getLensType()) {
+  if (type === 'doublet') return ['1:S2', '2:S1'];
+  if (type === 'triplet') return ['1:S2', '2:S1', '2:S2', '3:S1'];
+  return [];
+}
+
+function setSapphireSurfaces(values) {
+  const valid = new Set(validSapphireSurfaces());
+  sapphireSurfaces = Array.isArray(values)
+    ? [...new Set(values.map(String).filter(value => valid.has(value)))]
+    : [];
+  renderSapphireSurfaceOptions();
+}
+
+function renderSapphireSurfaceOptions(type = getLensType()) {
+  const valid = validSapphireSurfaces(type);
+  sapphireSurfaces = sapphireSurfaces.filter(value => valid.includes(value));
 }
 
 /* ── Collect params from inputs ── */
@@ -697,11 +842,13 @@ function collectParams() {
     proc_c_assembly: getVal('proc_c_assembly'),
     proc_b: getVal('proc_b'),
     proc_ranking: getVal('proc_ranking'),
+    proc_molding: getVal('proc_molding'),
     N_mode: getVal('N_mode'),
     N_manual: getVal('N_manual'),
     DN: getVal('DN'),
     signature: getVal('signature'),
     proc_vendor: getVal('proc_vendor'),
+    sapphire_surfaces: [...sapphireSurfaces],
 
     chamfer_mode: getVal('chamfer_mode'),
     chamfer_left: getNum('chamfer_left'),
@@ -767,6 +914,7 @@ async function refreshPreview() {
             proc_c_assembly: params.proc_c_assembly,
             proc_b: params.proc_b,
             proc_ranking: params.proc_ranking,
+            proc_molding: params.proc_molding,
             N_mode: params.N_mode,
             N_manual: params.N_manual,
             DN: params.DN,
@@ -783,6 +931,7 @@ async function refreshPreview() {
             dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
             cemented_ref_lens: params.cemented_ref_lens,
             coat_preset: params.coat_preset,
+            sapphire_surfaces: params.sapphire_surfaces,
             coat_s1_wave1: params.coat_s1_wave1, coat_s1_wave2: params.coat_s1_wave2,
             coat_s2_wave1: params.coat_s2_wave1, coat_s2_wave2: params.coat_s2_wave2,
             coat_s1_ravg1: params.coat_s1_ravg1, coat_s1_ravg2: params.coat_s1_ravg2,
@@ -854,6 +1003,7 @@ async function doExport(fullpath) {
           proc_c_assembly: params.proc_c_assembly,
           proc_b: params.proc_b,
           proc_ranking: params.proc_ranking,
+          proc_molding: params.proc_molding,
           N_mode: params.N_mode,
           N_manual: params.N_manual,
           DN: params.DN,
@@ -870,6 +1020,7 @@ async function doExport(fullpath) {
           dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
           cemented_ref_lens: params.cemented_ref_lens,
           coat_preset: params.coat_preset,
+          sapphire_surfaces: params.sapphire_surfaces,
           coat_s1_wave1: params.coat_s1_wave1, coat_s1_wave2: params.coat_s1_wave2,
           coat_s2_wave1: params.coat_s2_wave1, coat_s2_wave2: params.coat_s2_wave2,
           coat_s1_ravg1: params.coat_s1_ravg1, coat_s1_ravg2: params.coat_s1_ravg2,
@@ -972,7 +1123,7 @@ async function resetParams() {
     coat_s1_angle1: '0-15', coat_s1_angle2: '0-15',
     coat_s2_angle1: '0-15', coat_s2_angle2: '0-15',
     proc_c_single: '60″', proc_c_assembly: '60″',
-    proc_b: '60/40', proc_ranking: '01', signature: 'l.y.h',
+    proc_b: '60/40', proc_ranking: '01', proc_molding: 'Molding', signature: 'l.y.h',
     N_mode: 'auto', N_manual: '1.5', DN: '0.3',
     chamfer_mode: 'auto', chamfer_left: '0.2', chamfer_right: '0.4',
     t_tol: '0.02', sag_tol: '0.02',
@@ -989,6 +1140,7 @@ async function resetParams() {
 
   const merged = { ...defaults, ...geometryDefaults };
   apertureStates = createDefaultApertureStates(merged);
+  sapphireSurfaces = [];
 
   for (const [id, val] of Object.entries(merged)) {
     const el = document.getElementById(id);
@@ -1075,7 +1227,7 @@ function bindEvents() {
     'coat_s1_wave1','coat_s1_wave2','coat_s2_wave1','coat_s2_wave2',
     'coat_s1_ravg1','coat_s1_ravg2','coat_s2_ravg1','coat_s2_ravg2',
     'coat_s1_angle1','coat_s1_angle2','coat_s2_angle1','coat_s2_angle2',
-    'proc_c_single','proc_c_assembly','proc_b','proc_ranking','signature',
+    'proc_c_single','proc_c_assembly','proc_b','proc_ranking','proc_molding','signature',
     'proc_vendor',
     'N_mode','N_manual','DN',
     'ca_ratio',
@@ -1185,6 +1337,7 @@ async function loadDrawDefaults() {
       proc_c_assembly: 'proc_c_assembly',
       proc_surface_defect: 'proc_b',
       proc_ranking: 'proc_ranking',
+      proc_molding: 'proc_molding',
       proc_N_mode: 'N_mode',
       proc_N_manual: 'N_manual',
       proc_DN: 'DN',
@@ -1270,12 +1423,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 function bindOverlayToggle() {
   const btn = document.getElementById('btn-overlay-toggle');
   const container = document.getElementById('preview-container');
-  if (!btn || !container) return;
+  const overlay = document.getElementById('preview-overlays');
+  if (!btn || !container || !overlay) return;
 
   btn.addEventListener('click', () => {
     const isActive = btn.classList.toggle('active');
     container.classList.toggle('show-overlays', isActive);
     btn.querySelector('span').textContent = isActive ? '隐藏输入框' : '显示输入框';
+  });
+  overlay.addEventListener('click', event => {
+    const hotspot = event.target.closest?.('.preview-hotspot')
+      || findNearestPreviewHotspot(event.clientX, event.clientY);
+    if (!hotspot) {
+      closePreviewEditor(false);
+      return;
+    }
+    const field = currentFields.find(item => item.id === hotspot.dataset.fieldId);
+    if (field) openPreviewEditor(field, hotspot);
   });
 }
 
@@ -1297,6 +1461,7 @@ function applyOverrides(overrides) {
     proc_c_assembly: 'proc_c_assembly',
     proc_surface_defect: 'proc_b',
     proc_ranking: 'proc_ranking',
+    proc_molding: 'proc_molding',
     proc_N_mode: 'N_mode',
     proc_N_manual: 'N_manual',
     proc_DN: 'DN',
@@ -1355,6 +1520,11 @@ function applyOverrides(overrides) {
       if (el) el.value = normalized[key];
     }
   }
+  if (normalized.coat_preset === 'SQ-A3') {
+    const coatPreset = document.getElementById('coat_preset');
+    if (coatPreset) coatPreset.value = 'SQ-A6';
+  }
+  setSapphireSurfaces(normalized.sapphire_surfaces || []);
   // 更新条件显示的 UI 元素
   updateCAInputs();
   updateNInputs();
@@ -1420,6 +1590,7 @@ function saveAndReturn() {
     proc_c_assembly: params.proc_c_assembly,
     proc_surface_defect: params.proc_b,
     proc_ranking: params.proc_ranking,
+    proc_molding: params.proc_molding,
     proc_N_mode: params.N_mode,
     proc_N_manual: params.N_manual,
     proc_DN: params.DN,
@@ -1440,6 +1611,7 @@ function saveAndReturn() {
     dia_tol_nonpos_lower: params.dia_tol_nonpos_lower,
     cemented_ref_lens: params.cemented_ref_lens,
     coat_preset: params.coat_preset,
+    sapphire_surfaces: params.sapphire_surfaces,
     coat_s1_wave1: params.coat_s1_wave1,
     coat_s1_wave2: params.coat_s1_wave2,
     coat_s2_wave1: params.coat_s2_wave1,

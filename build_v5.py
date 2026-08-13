@@ -9,6 +9,7 @@ import sys
 import os
 import shutil
 import subprocess
+import re
 
 # ── 配置路径 ──
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,42 @@ VENV_PYTHON = os.path.join(WORKSPACE, "venv", "Scripts", "python.exe")
 DIST_DIR = os.path.join(WORKSPACE, "dist")
 BUILD_DIR = os.path.join(WORKSPACE, "build")
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "LensDrawing_v5")
+INSTALLER_SCRIPT = os.path.join(WORKSPACE, "LensDrawing_Installer.iss")
+VERSION_FILE = os.path.join(WORKSPACE, "version_info.txt")
+
+
+def read_release_version():
+    with open(INSTALLER_SCRIPT, "r", encoding="utf-8-sig") as f:
+        content = f.read()
+    match = re.search(r'^#define\s+MyAppVersion\s+"([^"]+)"', content, re.MULTILINE)
+    if not match:
+        raise RuntimeError("MyAppVersion is missing from LensDrawing_Installer.iss")
+    return match.group(1)
+
+
+APP_VERSION = read_release_version()
+OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", f"LensDrawing_{APP_VERSION}")
+
+
+def validate_version_resource():
+    with open(VERSION_FILE, "r", encoding="utf-8-sig") as f:
+        content = f.read()
+    expected_file_version = f"{APP_VERSION}.0.0"
+    required = (
+        f"StringStruct('FileVersion', '{expected_file_version}')",
+        f"StringStruct('ProductVersion', '{APP_VERSION}')",
+        f"filevers=({', '.join(APP_VERSION.split('.'))}, 0, 0)",
+        f"prodvers=({', '.join(APP_VERSION.split('.'))}, 0, 0)",
+    )
+    missing = [item for item in required if item not in content]
+    if missing:
+        raise RuntimeError(
+            "version_info.txt does not match MyAppVersion "
+            f"{APP_VERSION}: {missing}"
+        )
+
+
+validate_version_resource()
 
 # ── 0. 前置检查 ──
 if not os.path.exists(VENV_PYTHON):
@@ -119,6 +156,7 @@ args = [
     "--workpath", BUILD_DIR,
     "--distpath", DIST_DIR,
     "--icon", os.path.join(WORKSPACE, "icon.ico"),
+    "--version-file", VERSION_FILE,
 ]
 
 # 运行时 hooks

@@ -26,6 +26,18 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertFalse(data["success"])
         self.assertEqual(web_app._current_settings["J_multiplier"], before)
 
+    def test_legacy_sq_a3_setting_migrates_to_sq_a6(self):
+        normalized = validate_settings_updates({"coat_preset": "SQ-A3"})
+        self.assertEqual(normalized["coat_preset"], "SQ-A6")
+
+    def test_custom_ranking_and_molding_are_accepted(self):
+        normalized = validate_settings_updates({
+            "proc_ranking": "CUSTOM GRADE",
+            "proc_molding": "Scribe & Break",
+        })
+        self.assertEqual(normalized["proc_ranking"], "CUSTOM GRADE")
+        self.assertEqual(normalized["proc_molding"], "Scribe & Break")
+
 
 if __name__ == "__main__":
     unittest.main()

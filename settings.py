@@ -42,6 +42,7 @@ DEFAULT_SETTINGS = {
     "proc_signature": "l.y.h",            # 变量18：出图人署名
     "proc_vendor": "CDGM",                # 变量23：玻璃厂商
     "proc_ranking": "01",                 # 变量24：玻璃品级
+    "proc_molding": "Molding",            # Scribe&Break/Molding 右侧值
     # 镀膜预设
     "coat_preset": "SQ-A1",
     # 镀膜波段默认值
@@ -114,7 +115,10 @@ def validate_settings_updates(updates):
 
         if raw is None:
             raise ValueError(f"设置 {key} 不能为空")
-        normalized[key] = str(raw)
+        value = str(raw)
+        if key == "coat_preset" and value == "SQ-A3":
+            value = "SQ-A6"
+        normalized[key] = value
 
     if normalized.get("chamfer_mode", DEFAULT_SETTINGS["chamfer_mode"]) not in ("auto", "manual"):
         raise ValueError("倒角模式无效")
@@ -158,6 +162,8 @@ def load_settings():
                 result["dia_tol_pos_upper"] = sanitized["dia_tol_upper"]
             if "dia_tol_pos_lower" not in saved and "dia_tol_lower" in sanitized:
                 result["dia_tol_pos_lower"] = sanitized["dia_tol_lower"]
+            if result.get("coat_preset") == "SQ-A3":
+                result["coat_preset"] = "SQ-A6"
             return result
         except Exception:
             return DEFAULT_SETTINGS.copy()
@@ -177,5 +183,7 @@ def save_settings(settings):
     # 确保 proc_N_manual 为字符串
     n_manual = coerced.get("proc_N_manual", DEFAULT_SETTINGS["proc_N_manual"])
     coerced["proc_N_manual"] = str(n_manual)
+    if coerced.get("coat_preset") == "SQ-A3":
+        coerced["coat_preset"] = "SQ-A6"
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(coerced, f, indent=2, ensure_ascii=False)
