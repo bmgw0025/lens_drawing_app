@@ -1,0 +1,37 @@
+{
+  "agent_interface_version": "4.0.0",
+  "agent_spec_sha256": "8507fb81c65869edc3dff478585b889974a22aaf9dae6a8a099cc4aaf936d8dc",
+  "app_version": "4.0",
+  "app_version_full": "4.0.0",
+  "manifest_schema_version": "1.0",
+  "renderer_manifest": {
+    "batch_import.py": "4a343e3ed68da93a45049d714001fa9433f4f0aeb126cca6026920850ce1bd8f",
+    "config.py": "58f37a9358c2c56bd12e673cbd19469094b0460fc86ac0af1bfe46fe16f22d53",
+    "geometry.py": "43b0cec56f8f6270969dd9d51168e71aae892b76a692dff44ee4b0e658648cba",
+    "main.py": "e58fc7bb4c3f1d1e07b27c4eb14874adacf9d7f1b268a00226264be537e20b6f",
+    "settings.py": "7f446040240df57cc88c21b591ccd80af4af907d67b759713bd4a45416c0a034"
+  },
+  "source_manifest": {
+    "agent_cli.py": "58e6a62de510c6da24c5331cca86aa8c0cf6da453cb6f1bfb42207b9f5d5b95e",
+    "app_version.py": "b8f5ec303c1a81f367b8f2bad602017680d5462a0085c786c4065aca12de9e28",
+    "autodraw/__init__.py": "493a7cad139214bd0f43d89c2f43b01ac7cff153871ce38c6daa987715c24062",
+    "autodraw/agent_tasks.py": "71c81abbc9b489d006a2069078fac0cfb883f132a87aa44d867188ce6551a395",
+    "autodraw/mapper.py": "72fc2bad1454ba7c4f1b86f3a92328ce147a1ea32d2b169579b0487fdc56dac3",
+    "autodraw/models.py": "68ab145f94b175eeb387936a25813cfebf63c247df1ac83c9b472250d7a67d20",
+    "autodraw/naming.py": "9602d3cb66acbc85d48cbbc089e84d3c3f54d3f6df3a2e48d981bbd263960198",
+    "autodraw/output_validation.py": "4dccda9f28db035fde9bb78420dea75b7898e02b287cbbb6d3182bdb4eb123af",
+    "autodraw/pipeline.py": "106eb671178b067e1d6b0e8c4ff7fc1162b3027930f9309cf4a385688f7e9889",
+    "autodraw/process_requirements.py": "ae7091f2b682941253350b06a35c90e57438b43f73f8c0c1e50b4ec936509cdb",
+    "autodraw/renderer_adapter.py": "78b445abef04d2fd675be33978a697acff5f56dadaa9baef11583da4d55449b7",
+    "autodraw/runtime.py": "82b1e790ade343ce8ac3c635efcdabc35b82619c3a2d434f8ef44d7554716f99",
+    "autodraw/spec.py": "d1b5ee5cd2dc83fcd871969d510b536e0abbf45ff92ee8ffe7ed3bed2d00b3ed",
+    "autodraw/zosapi_provider.py": "dc59d5abae1ed189963d8a4c15ae0a08f6f3d528dc4c77d584e9232b6f598cd7",
+    "batch_import.py": "4a343e3ed68da93a45049d714001fa9433f4f0aeb126cca6026920850ce1bd8f",
+    "config.py": "58f37a9358c2c56bd12e673cbd19469094b0460fc86ac0af1bfe46fe16f22d53",
+    "geometry.py": "43b0cec56f8f6270969dd9d51168e71aae892b76a692dff44ee4b0e658648cba",
+    "main.py": "e58fc7bb4c3f1d1e07b27c4eb14874adacf9d7f1b268a00226264be537e20b6f",
+    "settings.py": "7f446040240df57cc88c21b591ccd80af4af907d67b759713bd4a45416c0a034",
+    "web_app.py": "2009fff3a53b1bdb04252f305b8c2bb366f3252d889af032392de23bc223e52b",
+    "webview_main.py": "be30fe2987ef128929111172e640a3a218a1945b0bee5b831b32a3173f2f3782"
+  }
+}

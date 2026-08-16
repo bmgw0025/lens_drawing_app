@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lens-drawing:agent-request:1.1",
+  "title": "Lens Drawing Agent Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "source",
+    "user_evidence",
+    "requirement_analysis",
+    "naming",
+    "geometry_review",
+    "manufacturing_requirements",
+    "execution"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["zmx_path", "sha256"],
+      "properties": {
+        "zmx_path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "user_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "content"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["user_message", "attachment", "operator_record"]},
+          "content": {"type": "string", "minLength": 1},
+          "captured_at": {"type": "string"},
+          "source_ref": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "requirement_analysis": {
+      "type": "object",
+      "required": ["user_goal_summary", "decisions", "evidence_disposition", "assumptions", "unresolved_questions"],
+      "properties": {
+        "user_goal_summary": {"type": "string", "minLength": 1},
+        "decisions": {"type": "array"},
+        "evidence_disposition": {"type": "object"},
+        "assumptions": {"type": "array", "maxItems": 0},
+        "unresolved_questions": {"type": "array", "maxItems": 0}
+      }
+    },
+    "naming": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "lens_model", "lens_element_model", "first_production_code", "element_sequence_start", "evidence_ids"],
+          "properties": {
+            "mode": {"const": "production_sequence"},
+            "lens_model": {"type": "string", "minLength": 1, "maxLength": 64},
+            "lens_element_model": {"type": "string", "minLength": 1, "maxLength": 64},
+            "first_production_code": {"type": "string", "minLength": 1, "maxLength": 20},
+            "element_sequence_start": {"type": "integer", "minimum": 1},
+            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "confirm_generated_names", "evidence_ids"],
+          "properties": {
+            "mode": {"const": "generated"},
+            "confirm_generated_names": {"const": true},
+            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "part_name_base", "append_group_suffix", "evidence_ids"],
+          "properties": {
+            "mode": {"const": "base_name"},
+            "part_name_base": {"type": "string", "minLength": 1, "maxLength": 15},
+            "part_no_base": {"type": "string", "maxLength": 20},
+            "append_group_suffix": {"type": "boolean"},
+            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "groups", "evidence_ids"],
+          "properties": {
+            "mode": {"const": "per_group"},
+            "groups": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["PartName"],
+                "properties": {
+                  "PartName": {"type": "string", "minLength": 1, "maxLength": 15},
+                  "PartNo": {"type": "string", "maxLength": 20}
+                }
+              }
+            },
+            "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        }
+      ]
+    },
+    "geometry_review": {"type": "object"},
+    "manufacturing_requirements": {"type": "object"},
+    "execution": {
+      "type": "object",
+      "required": ["renderer_root", "automated_pdf_validation", "human_visual_review_required"],
+      "properties": {
+        "mode": {"enum": ["production", "test"]},
+        "renderer_root": {"type": "string", "minLength": 1},
+        "automated_pdf_validation": {"const": true},
+        "human_visual_review_required": {"const": true}
+      }
+    }
+  }
+}

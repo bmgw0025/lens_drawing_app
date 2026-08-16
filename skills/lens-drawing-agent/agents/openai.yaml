@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lens Drawing Agent"
+  short_description: "Audited Zemax ZMX-to-PDF drawing automation"
+  default_prompt: "Use $lens-drawing-agent to analyze one ZMX file and complete an evidence-backed, validated Lens Drawing PDF task."

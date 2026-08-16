@@ -4,6 +4,7 @@ webview_main.py - Lens Drawing Desktop Entry Point
 Launches Flask backend in a background thread and opens a PyWebview window.
 """
 import sys, os, time, traceback, json
+from app_version import APP_DISPLAY_NAME, APP_VERSION
 
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -206,7 +207,7 @@ def main():
         log("Creating webview window...")
         api = JSApi()
         window = webview.create_window(
-            title="Lens Drawing V3.5 - 镜片工程图绘制",
+            title=f"{APP_DISPLAY_NAME} V{APP_VERSION} - 镜片工程图绘制",
             url=url,
             width=520,
             height=720,
@@ -228,7 +229,17 @@ def main():
         return
 
 
+def _run_agent_mode() -> int:
+    """Dispatch before importing GUI dependencies in the installed executable."""
+    from agent_cli import main as agent_main
+
+    argv = [item for item in sys.argv[1:] if item != "--agent"]
+    return agent_main(argv)
+
+
 if __name__ == "__main__":
+    if "--agent" in sys.argv[1:]:
+        raise SystemExit(_run_agent_mode())
     try:
         main()
     except Exception as e:

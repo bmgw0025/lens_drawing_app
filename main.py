@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Lens Drawing Tool v3.5"""
-import sys,os,math,io
+"""Lens Drawing Tool V4.0."""
+import sys,os,math,io,textwrap
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import matplotlib
 matplotlib.use("Agg")
@@ -28,6 +28,31 @@ def _cjk_font_properties():
 
 
 _CJK_FONT = _cjk_font_properties()
+
+
+def _format_process_number(value):
+    return f"{float(value):.2f}".rstrip("0").rstrip(".")
+
+
+def _draw_special_notes(ax_page, text, x, y, width=24, max_lines=8):
+    value = str(text or "").strip()
+    if not value:
+        return
+    lines = []
+    for paragraph in value.splitlines() or [value]:
+        lines.extend(textwrap.wrap(paragraph, width=width) or [""])
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][:-3] + "..." if len(lines[-1]) > 3 else "..."
+    ax_page.text(
+        x, y, "Special Note:", ha="left", va="top",
+        fontsize=6.5, color="black", fontweight="bold",
+    )
+    ax_page.text(
+        x, y-3, "\n".join(lines), ha="left", va="top",
+        fontsize=6.2, color="black", fontproperties=_CJK_FONT,
+        linespacing=1.15,
+    )
 
 # ════════════════════════════════════════════════════════════════════════════
 # Lane-based 标注布局管理器 —— 解决胶合页多片标注重叠问题
@@ -455,7 +480,7 @@ def _ann_r2(ax,E,D,R2,J,font_size,arrow_scale,r_offset_J,cx2=None):
 
 # 左倒角标注：箭头指向倒角起点 (cx,cy)，文字在左上方水平托线上
 def _ann_chamfer_left(ax,cx,cy,value,J,font_size,arrow_scale):
-    s=J*1.2; aw=J*0.6*arrow_scale; text_str=f"C{value:.1f}"
+    s=J*1.2; aw=J*0.6*arrow_scale; text_str=f"C{_format_process_number(value)}"
     tx=cx-s; ty=cy+s; edx=cx; edy=cy
     _arrow(ax,tx,ty,edx,edy,hs=aw)
     ll=J*2.5
@@ -464,7 +489,7 @@ def _ann_chamfer_left(ax,cx,cy,value,J,font_size,arrow_scale):
 
 # 右倒角标注：箭头指向倒角起点 (fx,fy)，文字在右上方水平托线上
 def _ann_chamfer_right(ax,fx,fy,value,J,font_size,arrow_scale):
-    s=J*1.2; aw=J*0.6*arrow_scale; text_str=f"C{value:.1f}"
+    s=J*1.2; aw=J*0.6*arrow_scale; text_str=f"C{_format_process_number(value)}"
     tx=fx+s; ty=fy+s; edx=fx; edy=fy
     _arrow(ax,tx,ty,edx,edy,hs=aw)
     ll=J*2.5
@@ -701,6 +726,15 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     var_vnd= s("proc_vendor", "CDGM")
     var_rnk= s("proc_ranking","01")
     var_molding = s("proc_molding", "Molding")
+    var_chipping = s("proc_chipping", "0.2")
+    var_roughness = s("proc_roughness", "0.01")
+    var_ink_brand = s("proc_ink_brand", "GT-7II")
+    var_ink_proportion = s("proc_ink_proportion", "8: 1: 9(Paint: Curing agent: Diluent)")
+    var_ink_thickness = s("proc_ink_thickness", "3~5um")
+    var_spraying_position = s("proc_spraying_position", "Arrow indication The dashed line")
+    var_dimensions_rule = s("proc_dimensions_rule", "According to the drawing")
+    var_ink_leakage = s("proc_ink_leakage", "0.1")
+    var_special_notes = s("special_notes", "")
     # 镀膜波段
     w_s1_1=proc_params.get("coat_s1_wave1","420-680")
     w_s1_2=proc_params.get("coat_s1_wave2","680-850")
@@ -774,8 +808,8 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer", field_width=18)
-        _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", _format_process_number(chamfer_left), field_id="chamfer", field_width=18)
+        _tx_pair(4, -line_h*8.5, "Chipping:", var_chipping)
         _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
         t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
         t_ca1._field_id = "ca1"
@@ -797,8 +831,8 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         _tx(0, -line_h*4.5, "2.Sample accuracy", bold=True)
         _tx_pair(4, -line_h*5.5, "ΔR:", "A")
         _tx(0, -line_h*6.5, "3.Processing", bold=True)
-        _tx_pair(4, -line_h*7.5, "Chamfer:", f"{chamfer_left:.1f}", field_id="chamfer", field_width=18)
-        _tx_pair(4, -line_h*8.5, "Chipping:", "0.2")
+        _tx_pair(4, -line_h*7.5, "Chamfer:", _format_process_number(chamfer_left), field_id="chamfer", field_width=18)
+        _tx_pair(4, -line_h*8.5, "Chipping:", var_chipping)
         _tx(4+42, -line_h*9.5, "Clear Aperture", f=fs)  # label only
         t_ca1 = _tx(4+42+28, -line_h*9.5, f"S1 φ{CA1:.2f}", f=fs)
         t_ca1._field_id = "ca1"
@@ -809,12 +843,12 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
         t_ca2._field_value = f"{CA2:.2f}"
         _tag_field_region("ca2", 115.2, tx_y-line_h*9.5-0.65, 136.5, tx_y-line_h*8.5-0.35)
         _tx(0, -line_h*11, "4.Spraying", bold=True)
-        _tx_pair(4, -line_h*12, "Ink Brand&Model:", "GT-7II")
-        _tx_pair(4, -line_h*13, "Ink Proportion:", "8: 1: 9(Paint: Curing agent: Diluent)")
-        _tx_pair(4, -line_h*14, "Thickness:", "3~5um")
-        _tx_pair(4, -line_h*15, "Spraying position:", "Arrow indication The dashed line")
-        _tx_pair(4, -line_h*16, "Dimensions:", "According to the drawing")
-        _tx_pair(4, -line_h*17, "Ink over spray/Light Leakage:", "0.1")
+        _tx_pair(4, -line_h*12, "Ink Brand&Model:", var_ink_brand)
+        _tx_pair(4, -line_h*13, "Ink Proportion:", var_ink_proportion)
+        _tx_pair(4, -line_h*14, "Thickness:", var_ink_thickness)
+        _tx_pair(4, -line_h*15, "Spraying position:", var_spraying_position)
+        _tx_pair(4, -line_h*16, "Dimensions:", var_dimensions_rule)
+        _tx_pair(4, -line_h*17, "Ink over spray/Light Leakage:", var_ink_leakage)
         _tx(0, -line_h*18.5, "5.The rest", bold=True)
         _tx(4, -line_h*19.5, "roughness", f=fs)
         tri_x, tri_y = tx_x+10, tx_y-line_h*21.5; tri_w = 3; tri_h = tri_w * 1.732
@@ -833,7 +867,13 @@ def _build_single_page_figure(T,R1,R2,MD,AD1,AD2,
     # 延伸斜线：与三角形右边共线（斜率=tri_h/tri_w=1.732），向右上延伸一个边长(2*tri_w)
     ax_page.plot([tri_x+tri_w, tri_x+tri_w*2], [tri_y, tri_y+tri_h], "k-", lw=0.8)
     # 0.01数值在水平线上方居中，确保不与roughness文字重叠
-    ax_page.text(tri_x, tri_y+1.0, "0.01", ha="center", va="bottom", fontsize=fs, color="black")
+    ax_page.text(tri_x, tri_y+1.0, var_roughness, ha="center", va="bottom", fontsize=fs, color="black")
+    _draw_special_notes(
+        ax_page,
+        var_special_notes,
+        18,
+        145 if is_cemented_single else 121,
+    )
 
     # ---- 底部大表格 ----
     # 表格区域：x=[18, 287], y=[10, 45]
@@ -1236,7 +1276,7 @@ def draw_cemented_assembly(ax, lenses_data,
               chamfer_left,chamfer_right,t_tol,sag_tol,font_size,arrow_scale,r_offset_J=0.8,
               dia_tol_upper=0.010,dia_tol_lower=0.025,
               dia_tol_nonpos_upper=0.05,dia_tol_nonpos_lower=0.10,
-              cemented_ref_lens=2,no_curvature=True):
+              cemented_ref_lens=2,no_curvature=True,total_t_tol=None):
     """绘制胶合镜片整体组装图
     规则：
     - 不标注倒角
@@ -1298,7 +1338,11 @@ def draw_cemented_assembly(ax, lenses_data,
         ax.plot(D[0]+x0,D[1],"k.",markersize=4,zorder=4)
 
     total_T=sum(l.T for l in lenses_data)
-    total_t_tol=sum(t_tol for _ in lenses_data)
+    total_t_tol=(
+        sum(t_tol for _ in lenses_data)
+        if total_t_tol is None
+        else float(total_t_tol)
+    )
     xm=J*5
     x_limits=(min(all_x)-xm-J*8,max(all_x)+xm+J*16)
     y_limits=(min(all_y)-J*14,max(all_y)+J*12)
@@ -1584,7 +1628,9 @@ def draw_cemented_assembly(ax, lenses_data,
 
 
 # ── 胶合整体页 Figure 构建 ────────────────────────────────────────
-def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=1, hide_partname=False):
+def _build_assembly_page_figure(
+        cemented_data, settings, page_no=1, total_pages=1,
+        hide_partname=False, page_overrides=None):
     """构建胶合镜片整体页的 Figure（第1页：整体图，不标注曲率）
     规则：
     - N/ΔN/B 留空不标注
@@ -1599,18 +1645,44 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
     s=lambda k,d: settings.get(k,d)
     today=datetime.now().strftime("%Y.%m.%d")
 
+    if page_overrides is None:
+        page_overrides = {}
+    page_contexts = [
+        _build_lens_page_context(
+            cemented_data, settings, page_overrides, index, hide_partname
+        )
+        for index in range(len(lenses))
+    ]
+
     # 计算参数
     max_MD=max(l.MD for l in lenses)
-    _ca_ratio = settings.get("ca_ratio", 0.94) if settings else 0.94
-    # 组装页 CA：检查第1片和最后一片的手动 CA 值
-    _ca_first, _ = _resolve_cemented_ca(settings, 0, _ca_ratio)
-    CA1 = _ca_first if _ca_first is not None else auto_CA(lenses[0].AD_left, _ca_ratio)
-    _, _ca_last = _resolve_cemented_ca(settings, len(lenses) - 1, _ca_ratio)
-    CA2 = _ca_last if _ca_last is not None else auto_CA(lenses[-1].AD_right, _ca_ratio)
+    first_context = page_contexts[0]
+    last_context = page_contexts[-1]
+    first_ratio = float(first_context["settings"].get("ca_ratio", 0.94))
+    last_ratio = float(last_context["settings"].get("ca_ratio", 0.94))
+    CA1 = (
+        first_context["ca1"]
+        if first_context["ca1"] is not None
+        else auto_CA(lenses[0].AD_left, first_ratio)
+    )
+    CA2 = (
+        last_context["ca2"]
+        if last_context["ca2"] is not None
+        else auto_CA(lenses[-1].AD_right, last_ratio)
+    )
     var_c=s("proc_c_assembly","60″")
     var_sig=s("proc_signature","l.y.h")
     var_vnd=s("proc_vendor","CDGM")
     var_rnk=s("proc_ranking","01")
+    var_chipping=s("proc_chipping","0.2")
+    var_roughness=s("proc_roughness","0.01")
+    var_ink_brand=s("proc_ink_brand","GT-7II")
+    var_ink_proportion=s("proc_ink_proportion","8: 1: 9(Paint: Curing agent: Diluent)")
+    var_ink_thickness=s("proc_ink_thickness","3~5um")
+    var_spraying_position=s("proc_spraying_position","Arrow indication The dashed line")
+    var_dimensions_rule=s("proc_dimensions_rule","According to the drawing")
+    var_ink_leakage=s("proc_ink_leakage","0.1")
+    var_special_notes=s("special_notes","")
     var_gn=cemented_data.glass_names_str
     var_pn="" if hide_partname else cemented_data.part_name
     var_pno=cemented_data.part_no
@@ -1620,14 +1692,21 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
     font_size=settings.get("font_size",9)
     arrow_scale=settings.get("arrow_scale",1.0)
     t_tol=settings.get("t_tol",0.02)
+    total_t_tol=sum(
+        float(context["settings"].get("t_tol", t_tol))
+        for context in page_contexts
+    )
     sag_tol=settings.get("sag_tol",0.02)
     dia_tol_upper=settings.get("dia_tol_pos_upper",settings.get("dia_tol_upper",0.010))
     dia_tol_lower=settings.get("dia_tol_pos_lower",settings.get("dia_tol_lower",0.025))
     dia_tol_nonpos_upper=settings.get("dia_tol_nonpos_upper",0.05)
     dia_tol_nonpos_lower=settings.get("dia_tol_nonpos_lower",0.10)
     cemented_ref=int(settings.get("cemented_ref_lens",2))
-    chamfer_mode=settings.get("chamfer_mode","auto")
-    cL,cR=auto_chamfer(max_MD,lenses[0].R_left,lenses[-1].R_right) if chamfer_mode=="auto" else (settings.get("chamfer_left",0.2),settings.get("chamfer_right",0.4))
+    cL=first_context["chamfer_left"]
+    cR=last_context["chamfer_right"]
+    chamfer_summary = _format_process_number(cL)
+    if abs(float(cL) - float(cR)) > 1e-12:
+        chamfer_summary += "/" + _format_process_number(cR)
 
     fig=Figure(figsize=(11.69,8.27),dpi=300)  # 11.69*100=1169, 8.27*100=827, closest integer pixels to A4 ratio
     # ── 页面坐标 axes ──
@@ -1648,23 +1727,24 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
     _tx(0,0,"1.Sample accuracy",bold=True)
     _tx_pair(4,-line_h,"ΔR:","A")
     _tx(0,-line_h*2,"2.Processing",bold=True)
-    _tx_pair(4,-line_h*3,"Chamfer:",f"{cL:.1f}")
-    _tx_pair(4,-line_h*4,"Chipping:","0.2")
+    _tx_pair(4,-line_h*3,"Chamfer:",chamfer_summary)
+    _tx_pair(4,-line_h*4,"Chipping:",var_chipping)
     _tx_pair(4,-line_h*5,"Clear Aperture",f"S1 φ{CA1:.2f}  S2 φ{CA2:.2f}")
     _tx(0,-line_h*6.5,"3.Spraying",bold=True)
-    _tx_pair(4,-line_h*7.5,"Ink Brand&Model:","GT-7II")
-    _tx_pair(4,-line_h*8.5,"Ink Proportion:","8: 1: 9(Paint: Curing agent: Diluent)")
-    _tx_pair(4,-line_h*9.5,"Thickness:","3~5um")
-    _tx_pair(4,-line_h*10.5,"Spraying position:","Arrow indication The dashed line")
-    _tx_pair(4,-line_h*11.5,"Dimensions:","According to the drawing")
-    _tx_pair(4,-line_h*12.5,"Ink over spray/Light Leakage:","0.1")
+    _tx_pair(4,-line_h*7.5,"Ink Brand&Model:",var_ink_brand)
+    _tx_pair(4,-line_h*8.5,"Ink Proportion:",var_ink_proportion)
+    _tx_pair(4,-line_h*9.5,"Thickness:",var_ink_thickness)
+    _tx_pair(4,-line_h*10.5,"Spraying position:",var_spraying_position)
+    _tx_pair(4,-line_h*11.5,"Dimensions:",var_dimensions_rule)
+    _tx_pair(4,-line_h*12.5,"Ink over spray/Light Leakage:",var_ink_leakage)
     _tx(0,-line_h*14,"4.The rest",bold=True)
     _tx(4,-line_h*15,"roughness")
     tri_x,tri_y=tx_x+10,tx_y-line_h*17; tri_w=3; tri_h=tri_w*1.732
     ax_page.plot([tri_x-tri_w,tri_x+tri_w,tri_x,tri_x-tri_w],[tri_y,tri_y,tri_y-tri_h,tri_y],"k-",lw=0.8)
     ax_page.plot([tri_x-tri_w,tri_x+tri_w],[tri_y,tri_y],"k-",lw=0.8)
     ax_page.plot([tri_x+tri_w,tri_x+tri_w*2],[tri_y,tri_y+tri_h],"k-",lw=0.8)
-    ax_page.text(tri_x,tri_y+1.0,"0.01",ha="center",va="bottom",fontsize=fs,color="black")
+    ax_page.text(tri_x,tri_y+1.0,var_roughness,ha="center",va="bottom",fontsize=fs,color="black")
+    _draw_special_notes(ax_page, var_special_notes, 18, 139)
 
     # ── 胶合整体页精简标题栏 ──
     # 左下只保留胶合页 C；中间镀膜表及无值的 N/ΔN/B 不绘制。
@@ -1744,7 +1824,7 @@ def _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=
         cL,cR,t_tol,sag_tol,font_size,arrow_scale,
         settings.get("r_offset_J",0.8),dia_tol_upper,dia_tol_lower,
         dia_tol_nonpos_upper,dia_tol_nonpos_lower,cemented_ref,
-        no_curvature=True)
+        no_curvature=True,total_t_tol=total_t_tol)
     ax_lens.set_clip_on(False)
     return fig
 
@@ -2056,6 +2136,15 @@ _LENS_PAGE_PROC_DEFAULTS = {
     "proc_vendor": "CDGM",
     "proc_ranking": "01",
     "proc_molding": "Molding",
+    "proc_chipping": "0.2",
+    "proc_roughness": "0.01",
+    "proc_ink_brand": "GT-7II",
+    "proc_ink_proportion": "8: 1: 9(Paint: Curing agent: Diluent)",
+    "proc_ink_thickness": "3~5um",
+    "proc_spraying_position": "Arrow indication The dashed line",
+    "proc_dimensions_rule": "According to the drawing",
+    "proc_ink_leakage": "0.1",
+    "special_notes": "",
     "coat_s1_wave1": "420-680",
     "coat_s1_wave2": "680-850",
     "coat_s2_wave1": "420-680",
@@ -2175,7 +2264,10 @@ def build_cemented_preview_figures(cemented_data, settings, page_overrides=None)
 
     # ── 组装页 ──
     total_pages = 1 + len(lenses)
-    fig_asm = _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=total_pages)
+    fig_asm = _build_assembly_page_figure(
+        cemented_data, settings, page_no=1, total_pages=total_pages,
+        page_overrides=page_overrides,
+    )
     figures.append(("整体", fig_asm))
 
     # ── 各单片页 ──
@@ -2230,7 +2322,10 @@ def export_cemented_pdf(cemented_data, settings, output_path, hide_partname=Fals
     with PdfPages(output_path) as pdf:
         # ── 第 1 页：整体组装图（仅双胶合/三胶合） ──
         if is_multi:
-            fig_asm=_build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=total_pages, hide_partname=hide_partname)
+            fig_asm=_build_assembly_page_figure(
+                cemented_data, settings, page_no=1, total_pages=total_pages,
+                hide_partname=hide_partname, page_overrides=page_overrides,
+            )
             pdf.savefig(fig_asm); plt.close(fig_asm)
 
         # ── 第 2~N 页：各单片单独出图 ──
@@ -2280,7 +2375,10 @@ def build_cemented_pdf_bytes(cemented_data, settings, hide_partname=False, page_
 
     with PdfPages(buf) as pdf:
         if is_multi:
-            fig_asm = _build_assembly_page_figure(cemented_data, settings, page_no=1, total_pages=total_pages, hide_partname=hide_partname)
+            fig_asm = _build_assembly_page_figure(
+                cemented_data, settings, page_no=1, total_pages=total_pages,
+                hide_partname=hide_partname, page_overrides=page_overrides,
+            )
             fig_asm.set_dpi(72)  # PDF 坐标对齐：确保内容流缩放因子为 1.0
             pdf.savefig(fig_asm); plt.close(fig_asm)
 

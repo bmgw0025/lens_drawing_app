@@ -1,0 +1,599 @@
+{
+  "agent_interface": {
+    "commands": [
+      "capabilities",
+      "spec",
+      "create",
+      "submit",
+      "validate",
+      "run",
+      "status",
+      "review"
+    ],
+    "installed_entrypoint": "LensDrawing.exe --agent --output-json <path> <command>",
+    "output_contract": {
+      "exit_codes": {
+        "0": "command completed and its requested gate passed",
+        "1": "argument, resource or execution error",
+        "2": "command completed but geometry, validation, review or release gate is not passed"
+      },
+      "format": "UTF-8 JSON envelope",
+      "required_flag_for_windowed_install": "--output-json <path>",
+      "top_level_fields": [
+        "ok",
+        "command",
+        "exit_code",
+        "interface_version",
+        "result or error"
+      ]
+    },
+    "request_schema_version": "1.1",
+    "source_entrypoint": "python agent_cli.py <command>",
+    "task_schema_version": "1.0",
+    "version": "4.0.0"
+  },
+  "agent_judgment_required": [
+    "translate user language into evidence-backed naming and process fields",
+    "ask only unresolved naming, complete manufacturing and exact geometry review questions",
+    "explain blocked or ambiguous geometry without overriding it",
+    "disclose high-confidence warnings and excluded prism groups at delivery",
+    "prepare the task for an authorized human visual review without recording the decision"
+  ],
+  "application": {
+    "display_name": "Lens Drawing",
+    "name": "LensDrawing",
+    "version": "4.0",
+    "version_full": "4.0.0"
+  },
+  "evidence": {
+    "attachments_require_sha256": true,
+    "every_evidence_item_requires_disposition": true,
+    "every_override_requires_field_evidence": true,
+    "production_kinds": [
+      "user_message",
+      "attachment"
+    ],
+    "test_only_kinds": [
+      "operator_record"
+    ]
+  },
+  "geometry_policy": {
+    "agent_mutable": false,
+    "authoritative_input": ".zmx",
+    "fields": [
+      "Glass",
+      "T",
+      "R",
+      "MD",
+      "AD_left",
+      "AD_right"
+    ],
+    "geometry_contract": "lenses[] is authoritative for per-lens Glass/T/R/MD/AD_left/AD_right; row is a legacy compatibility view and may contain null at a virtual interface whose two AD values differ",
+    "medium_confidence_requires_exact_acknowledgement": true,
+    "prism_exclusion_rule": "exclude a single H-K9L element with two plane surfaces from drawing, retain deterministic evidence, and disclose the exclusion at delivery",
+    "screenshot_policy": "screenshots may support identification or user evidence but cannot enter the accurate automatic geometry path; require ZMX or a separately confirmed manual route",
+    "semi_diameter_rule": "AD and MD are full diameters; never map AD to MD",
+    "source": "read-only native ZOS-API extraction from one ZMX",
+    "topology_and_dimension_review_are_separate": true,
+    "virtual_interface_effect": "collapse the duplicated LDE surfaces into one logical R boundary, preserve side-specific AD and MEMA evidence for the adjacent lenses, and do not split the cemented lens group",
+    "virtual_interface_rule": "zero-thickness non-glass gaps are cemented only when duplicated surface type/radius match and no tilt/decenter exists"
+  },
+  "human_operator_judgment_required": [
+    "visually review every rendered PDF page",
+    "record passed or failed through the review command"
+  ],
+  "installed_dependencies": {
+    "bundled": [
+      "Lens Drawing renderer",
+      "Agent CLI",
+      "PDF validation runtime",
+      "Lens Drawing Agent Skill"
+    ],
+    "external": [
+      "Windows x64",
+      "Ansys Zemax OpticStudio 2022 R2.01 with valid license for ZMX import"
+    ]
+  },
+  "manual_application": {
+    "entrypoint": "LensDrawing.exe",
+    "modules": [
+      "draw",
+      "batch",
+      "settings"
+    ],
+    "preserved": true
+  },
+  "naming": {
+    "modes": [
+      "production_sequence",
+      "generated",
+      "base_name",
+      "per_group"
+    ],
+    "production_sequence": {
+      "excluded_groups_consume_sequence_numbers": false,
+      "first_production_code": "PartNo for the first drawable group; trailing digits increment with preserved width",
+      "lens_element_model": "MfrPdfFolder and PartName prefix; PartName uses -1, -2, ... in drawable surface order",
+      "lens_model": "SavePdfFolder for every drawable group"
+    },
+    "renderer_text": "ASCII letters, digits, dot, underscore and hyphen"
+  },
+  "override_precedence": [
+    "renderer_defaults",
+    "global_overrides",
+    "group_overrides",
+    "page_overrides"
+  ],
+  "persistent_artifacts": [
+    "task_state.json",
+    "AGENT_PROTOCOL.md",
+    "agent_request.schema.json",
+    "lens_drawing_agent_spec.json",
+    "AGENT_HANDOFF.md",
+    "source_analysis/",
+    "agent_request.json",
+    "request_versions/",
+    "request_validation.json",
+    "result/",
+    "result/manufacturing_requirements_delivery.json",
+    "result/manufacturing_requirements_summary.md",
+    "human_visual_review.json",
+    "delivery_manifest.json"
+  ],
+  "process_default_policy": {
+    "reads_persisted_gui_settings": false,
+    "source": "immutable Agent baseline bundled with this app version",
+    "unspecified_requirements_use_baseline": true
+  },
+  "process_defaults": {
+    "ca_ratio": 0.94,
+    "cemented_ref_lens": 2,
+    "chamfer_left": 0.2,
+    "chamfer_mode": "auto",
+    "chamfer_right": 0.4,
+    "coat_preset": "SQ-A1",
+    "coat_s1_angle1": "0-15",
+    "coat_s1_angle2": "0-15",
+    "coat_s1_ravg1": "0.4",
+    "coat_s1_ravg2": "0.8",
+    "coat_s1_wave1": "420-680",
+    "coat_s1_wave2": "680-850",
+    "coat_s2_angle1": "0-15",
+    "coat_s2_angle2": "0-15",
+    "coat_s2_ravg1": "0.4",
+    "coat_s2_ravg2": "0.8",
+    "coat_s2_wave1": "420-680",
+    "coat_s2_wave2": "680-850",
+    "dia_tol_nonpos_lower": 0.1,
+    "dia_tol_nonpos_upper": 0.05,
+    "dia_tol_pos_lower": 0.025,
+    "dia_tol_pos_upper": 0.01,
+    "proc_DN": "0.3",
+    "proc_N_manual": "1.5",
+    "proc_N_mode": "auto",
+    "proc_c_assembly": "60″",
+    "proc_c_single": "60″",
+    "proc_chipping": "0.2",
+    "proc_dimensions_rule": "According to the drawing",
+    "proc_ink_brand": "GT-7II",
+    "proc_ink_leakage": "0.1",
+    "proc_ink_proportion": "8: 1: 9(Paint: Curing agent: Diluent)",
+    "proc_ink_thickness": "3~5um",
+    "proc_molding": "Molding",
+    "proc_ranking": "01",
+    "proc_roughness": "0.01",
+    "proc_signature": "l.y.h",
+    "proc_spraying_position": "Arrow indication The dashed line",
+    "proc_surface_defect": "60/40",
+    "proc_vendor": "CDGM",
+    "sag_tol": 0.02,
+    "special_notes": "",
+    "t_tol": 0.02
+  },
+  "process_field_catalog": {
+    "CA1": {
+      "exclusive_minimum": 0,
+      "label": "当前镜片左 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "CA2": {
+      "exclusive_minimum": 0,
+      "label": "当前镜片右 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "CA_mode": {
+      "label": "当前镜片 CA 模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "ca_1_left": {
+      "exclusive_minimum": 0,
+      "label": "镜片1左 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_1_right": {
+      "exclusive_minimum": 0,
+      "label": "镜片1右 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_2_left": {
+      "exclusive_minimum": 0,
+      "label": "镜片2左 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_2_right": {
+      "exclusive_minimum": 0,
+      "label": "镜片2右 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_3_left": {
+      "exclusive_minimum": 0,
+      "label": "镜片3左 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_3_right": {
+      "exclusive_minimum": 0,
+      "label": "镜片3右 CA",
+      "type": "number",
+      "unit": "mm"
+    },
+    "ca_mode_1": {
+      "label": "镜片1 CA 模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "ca_mode_2": {
+      "label": "镜片2 CA 模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "ca_mode_3": {
+      "label": "镜片3 CA 模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "ca_ratio": {
+      "exclusive_minimum": 0,
+      "label": "CA 自动系数",
+      "maximum": 1,
+      "type": "number"
+    },
+    "cemented_ref_lens": {
+      "label": "胶合定位镜片序号",
+      "maximum": 3,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "chamfer_1_left": {
+      "label": "镜片1左倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_1_right": {
+      "label": "镜片1右倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_2_left": {
+      "label": "镜片2左倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_2_right": {
+      "label": "镜片2右倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_3_left": {
+      "label": "镜片3左倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_3_right": {
+      "label": "镜片3右倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_left": {
+      "label": "左倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "chamfer_mode": {
+      "label": "倒角模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "chamfer_mode_1": {
+      "label": "镜片1倒角模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "chamfer_mode_2": {
+      "label": "镜片2倒角模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "chamfer_mode_3": {
+      "label": "镜片3倒角模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "chamfer_right": {
+      "label": "右倒角",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "coat_preset": {
+      "label": "镀膜预设",
+      "type": "enum",
+      "values": [
+        "SQ-A1",
+        "SQ-A5",
+        "SQ-A6",
+        "Custom"
+      ]
+    },
+    "coat_s1_angle1": {
+      "label": "S1 第一波段入射角",
+      "type": "string"
+    },
+    "coat_s1_angle2": {
+      "label": "S1 第二波段入射角",
+      "type": "string"
+    },
+    "coat_s1_ravg1": {
+      "label": "S1 第一波段平均反射率",
+      "type": "string"
+    },
+    "coat_s1_ravg2": {
+      "label": "S1 第二波段平均反射率",
+      "type": "string"
+    },
+    "coat_s1_wave1": {
+      "label": "S1 第一波段",
+      "type": "string"
+    },
+    "coat_s1_wave2": {
+      "label": "S1 第二波段",
+      "type": "string"
+    },
+    "coat_s2_angle1": {
+      "label": "S2 第一波段入射角",
+      "type": "string"
+    },
+    "coat_s2_angle2": {
+      "label": "S2 第二波段入射角",
+      "type": "string"
+    },
+    "coat_s2_ravg1": {
+      "label": "S2 第一波段平均反射率",
+      "type": "string"
+    },
+    "coat_s2_ravg2": {
+      "label": "S2 第二波段平均反射率",
+      "type": "string"
+    },
+    "coat_s2_wave1": {
+      "label": "S2 第一波段",
+      "type": "string"
+    },
+    "coat_s2_wave2": {
+      "label": "S2 第二波段",
+      "type": "string"
+    },
+    "dia_tol_nonpos_lower": {
+      "label": "非定位直径下偏差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "dia_tol_nonpos_upper": {
+      "label": "非定位直径上偏差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "dia_tol_pos_lower": {
+      "label": "定位直径下偏差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "dia_tol_pos_upper": {
+      "label": "定位直径上偏差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "proc_DN": {
+      "label": "局部光圈 ΔN",
+      "type": "string"
+    },
+    "proc_N_manual": {
+      "exclusive_minimum": 0,
+      "label": "手动光圈数 N",
+      "type": "number"
+    },
+    "proc_N_mode": {
+      "label": "光圈数 N 模式",
+      "type": "enum",
+      "values": [
+        "auto",
+        "manual"
+      ]
+    },
+    "proc_c_assembly": {
+      "label": "胶合总图偏心 C",
+      "type": "string"
+    },
+    "proc_c_single": {
+      "label": "单片页偏心 C",
+      "type": "string"
+    },
+    "proc_chipping": {
+      "label": "崩边要求",
+      "maximum_length": 32,
+      "type": "string"
+    },
+    "proc_dimensions_rule": {
+      "label": "喷墨尺寸依据",
+      "maximum_length": 96,
+      "type": "string"
+    },
+    "proc_ink_brand": {
+      "label": "油墨品牌及型号",
+      "maximum_length": 64,
+      "type": "string"
+    },
+    "proc_ink_leakage": {
+      "label": "溢墨漏光要求",
+      "maximum_length": 32,
+      "type": "string"
+    },
+    "proc_ink_proportion": {
+      "label": "油墨配比",
+      "maximum_length": 96,
+      "type": "string"
+    },
+    "proc_ink_thickness": {
+      "label": "油墨厚度",
+      "maximum_length": 32,
+      "type": "string"
+    },
+    "proc_molding": {
+      "label": "成型方式",
+      "type": "string"
+    },
+    "proc_ranking": {
+      "label": "玻璃品级",
+      "type": "string"
+    },
+    "proc_roughness": {
+      "label": "其余表面粗糙度",
+      "maximum_length": 32,
+      "type": "string"
+    },
+    "proc_signature": {
+      "label": "制图签名",
+      "type": "string"
+    },
+    "proc_spraying_position": {
+      "label": "喷墨位置",
+      "maximum_length": 96,
+      "type": "string"
+    },
+    "proc_surface_defect": {
+      "label": "表面疵病等级 B",
+      "type": "string"
+    },
+    "proc_vendor": {
+      "label": "玻璃厂商",
+      "type": "string"
+    },
+    "sag_tol": {
+      "label": "矢高公差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    },
+    "sapphire_surfaces": {
+      "label": "蓝宝石膜胶合界面",
+      "type": "string_array"
+    },
+    "special_notes": {
+      "label": "自由特殊加工备注",
+      "maximum_length": 320,
+      "type": "string"
+    },
+    "t_tol": {
+      "label": "中心厚度公差",
+      "minimum": 0,
+      "type": "number",
+      "unit": "mm"
+    }
+  },
+  "renderer_contract": {
+    "alternate_renderer_root_allowed": false,
+    "pdf_variants_per_drawable_group": {
+      "mfr": "MfrPdfFolder/PartNo.pdf with PartName hidden",
+      "save": "SavePdfFolder/PartName.pdf with PartName visible"
+    },
+    "shared_by": [
+      "manual GUI",
+      "Agent CLI"
+    ],
+    "single_implementation": true
+  },
+  "spec_schema_version": "1.0",
+  "supported_geometry": {
+    "configuration_count": 1,
+    "lens_count_per_group": [
+      1,
+      2,
+      3
+    ],
+    "mode": "Sequential",
+    "surface_types": [
+      "Standard spherical",
+      "plane"
+    ]
+  },
+  "task_state": {
+    "failure_or_block_states": [
+      "blocked_geometry",
+      "needs_clarification",
+      "validation_failed",
+      "execution_failed",
+      "human_review_failed",
+      "release_blocked"
+    ],
+    "normal_flow": [
+      "needs_input",
+      "submitted",
+      "ready",
+      "running",
+      "awaiting_human_review",
+      "completed"
+    ]
+  }
+}

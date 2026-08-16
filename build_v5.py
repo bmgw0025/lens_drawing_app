@@ -1,24 +1,31 @@
 # -*- coding: utf-8 -*-
-"""
-打包脚本 v5 - 适配重构后 pywebview + Flask 架构
-使用项目 venv 的 Python 3.12 进行打包
-入口: webview_main.py (替代旧版 main.py)
-新增: templates/ + static/ 前端资源文件
-"""
+"""Build the Lens Drawing V4 GUI and installed Agent as one onedir package."""
 import sys
 import os
 import shutil
 import subprocess
 import re
+import json
+from pathlib import Path
 
 # ── 配置路径 ──
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 VENV_PYTHON = os.path.join(WORKSPACE, "venv", "Scripts", "python.exe")
 DIST_DIR = os.path.join(WORKSPACE, "dist")
 BUILD_DIR = os.path.join(WORKSPACE, "build")
-OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "LensDrawing_v5")
+OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "LensDrawing_4.0")
 INSTALLER_SCRIPT = os.path.join(WORKSPACE, "LensDrawing_Installer.iss")
 VERSION_FILE = os.path.join(WORKSPACE, "version_info.txt")
+SYNC_AGENT_ASSETS = os.path.join(WORKSPACE, "sync_agent_assets.py")
+
+
+def safe_rmtree(path, allowed_roots):
+    target = Path(path).resolve()
+    roots = [Path(item).resolve() for item in allowed_roots]
+    if not any(target == root or root in target.parents for root in roots):
+        raise RuntimeError(f"Refusing to remove unexpected build path: {target}")
+    if target.exists():
+        shutil.rmtree(target)
 
 
 def read_release_version():
@@ -66,14 +73,42 @@ py_ver = subprocess.run(
 ).stdout.strip()
 print(f"[Info] Python version: {py_ver}")
 
+print("[Agent] Synchronizing generated spec and build manifest...")
+sync_result = subprocess.run(
+    [VENV_PYTHON, SYNC_AGENT_ASSETS, "--write", "--check"],
+    cwd=WORKSPACE,
+    check=False,
+)
+if sync_result.returncode != 0:
+    print("[Error] Agent spec synchronization failed")
+    sys.exit(sync_result.returncode)
+
+dependency_probe = subprocess.run(
+    [
+        VENV_PYTHON,
+        "-c",
+        "import pdfplumber, pypdfium2, pythonnet, webview; "
+        "print('Agent/PDF runtime dependencies available')",
+    ],
+    capture_output=True,
+    text=True,
+    encoding="utf-8",
+    errors="replace",
+)
+if dependency_probe.returncode != 0:
+    print("[Error] Required Agent/PDF runtime dependency is missing")
+    print(dependency_probe.stderr)
+    sys.exit(dependency_probe.returncode)
+print(f"[Agent] {dependency_probe.stdout.strip()}")
+
 # ── 1. 清理旧构建 ──
 for d in (DIST_DIR, BUILD_DIR):
     if os.path.exists(d):
-        shutil.rmtree(d, ignore_errors=True)
+        safe_rmtree(d, [WORKSPACE])
         print(f"[Clean] Removed {d}")
 
 if os.path.exists(OUTPUT_DIR):
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    safe_rmtree(OUTPUT_DIR, [os.path.join(os.path.expanduser("~"), "Desktop")])
     print(f"[Clean] Removed {OUTPUT_DIR}")
 
 # ── 2. 打补丁：跳过 discover_hook_directories ──
@@ -241,6 +276,13 @@ hidden_imports = [
     "cffi",
     "unittest",          # pyparsing.testing 依赖 unittest，必须显式包含
 
+    # ── Agent PDF validation ──
+    "pdfplumber",
+    "pdfminer",
+    "pdfminer.high_level",
+    "pypdfium2",
+    "pypdfium2.raw",
+
     # ── pythonnet (pywebview WinForms 后端必需) ──
     "pythonnet",
     "clr",
@@ -251,6 +293,20 @@ hidden_imports = [
     "runtime",
 
     # ── 项目模块 ──
+    "app_version",
+    "agent_cli",
+    "autodraw",
+    "autodraw.agent_tasks",
+    "autodraw.mapper",
+    "autodraw.models",
+    "autodraw.naming",
+    "autodraw.output_validation",
+    "autodraw.pipeline",
+    "autodraw.process_requirements",
+    "autodraw.renderer_adapter",
+    "autodraw.runtime",
+    "autodraw.spec",
+    "autodraw.zosapi_provider",
     "geometry",
     "config",
     "settings",
@@ -265,8 +321,12 @@ data_files = [
     # Flask 模板和静态资源 (新增 - 重构后核心前端文件)
     (os.path.join(WORKSPACE, "templates"), "templates"),
     (os.path.join(WORKSPACE, "static"), "static"),
-    # 设置文件
-    (os.path.join(WORKSPACE, "app_settings.json"), "."),
+    # Agent protocol/spec and bundled Skill (also copied beside the EXE below)
+    (os.path.join(WORKSPACE, "agent_resources"), "agent_resources"),
+    (
+        os.path.join(WORKSPACE, "skills", "lens-drawing-agent"),
+        os.path.join("skills", "lens-drawing-agent"),
+    ),
     # matplotlib 数据
     (mpl_data_dir, "matplotlib/mpl-data"),
 ]
@@ -300,6 +360,10 @@ args.extend(["--collect-submodules", "win32com"])
 args.extend(["--collect-submodules", "win32"])
 args.extend(["--collect-data", "win32"])
 args.extend(["--collect-data", "pywin32_system32"])
+
+# Agent PDF parser/renderer binaries and package data.
+args.extend(["--collect-all", "pdfplumber"])
+args.extend(["--collect-all", "pypdfium2"])
 
 # ── 排除不需要的大包 ──
 exclude_packages = [
@@ -374,6 +438,22 @@ if os.path.exists(webview_lib_dir):
                 shutil.copytree(src, dst)
                 print(f"  Copied dir: {item}")
 
+# Keep user-facing Agent resources beside the EXE. PyInstaller also bundles a
+# fallback copy under _internal so runtime discovery survives partial moves.
+distribution_root = os.path.join(DIST_DIR, "LensDrawing")
+for source_dir, relative_target in (
+    (os.path.join(WORKSPACE, "agent_resources"), "agent_resources"),
+    (
+        os.path.join(WORKSPACE, "skills", "lens-drawing-agent"),
+        os.path.join("skills", "lens-drawing-agent"),
+    ),
+):
+    target_dir = os.path.join(distribution_root, relative_target)
+    if os.path.exists(target_dir):
+        safe_rmtree(target_dir, [distribution_root])
+    shutil.copytree(source_dir, target_dir)
+    print(f"[Agent] Copied {source_dir} -> {target_dir}")
+
 # ── 9. 验证关键文件 ──
 print("[Verify] Checking distribution integrity...")
 
@@ -383,7 +463,6 @@ py_dll = f"python{py_suffix}.dll"
 checks = [
     ("EXE", os.path.join(DIST_DIR, "LensDrawing", "LensDrawing.exe")),
     ("Python DLL", os.path.join(internal_dir, py_dll)),
-    ("Settings", os.path.join(internal_dir, "app_settings.json")),
     ("Templates", os.path.join(internal_dir, "templates", "launcher.html")),
     ("Draw HTML", os.path.join(internal_dir, "templates", "draw.html")),
     ("Batch HTML", os.path.join(internal_dir, "templates", "batch.html")),
@@ -392,6 +471,29 @@ checks = [
     ("Draw JS", os.path.join(internal_dir, "static", "js", "draw.js")),
     ("Batch JS", os.path.join(internal_dir, "static", "js", "batch.js")),
     ("MPL Data", os.path.join(internal_dir, "matplotlib", "mpl-data")),
+    (
+        "Agent Spec",
+        os.path.join(distribution_root, "agent_resources", "lens_drawing_agent_spec.json"),
+    ),
+    (
+        "Agent Protocol",
+        os.path.join(distribution_root, "agent_resources", "AGENT_PROTOCOL.md"),
+    ),
+    (
+        "Bundled Skill",
+        os.path.join(distribution_root, "skills", "lens-drawing-agent", "SKILL.md"),
+    ),
+    (
+        "Skill Invoke Script",
+        os.path.join(
+            distribution_root,
+            "skills",
+            "lens-drawing-agent",
+            "scripts",
+            "Invoke-LensDrawingAgent.ps1",
+        ),
+    ),
+    ("PDFium Runtime", os.path.join(internal_dir, "pypdfium2_raw")),
 ]
 
 all_ok = True
@@ -403,7 +505,42 @@ for name, path in checks:
         all_ok = False
 
 if not all_ok:
-    print("[Warning] Some expected files are missing!")
+    print("[Error] Distribution integrity check failed")
+    sys.exit(1)
+
+agent_smoke_path = os.path.join(BUILD_DIR, "frozen_agent_spec_smoke.json")
+if os.path.exists(agent_smoke_path):
+    os.remove(agent_smoke_path)
+agent_executable = os.path.join(distribution_root, "LensDrawing.exe")
+print("[Verify] Running frozen Agent spec smoke test...")
+smoke = subprocess.run(
+    [
+        agent_executable,
+        "--agent",
+        "--output-json",
+        agent_smoke_path,
+        "spec",
+    ],
+    cwd=distribution_root,
+    check=False,
+    timeout=90,
+)
+if smoke.returncode != 0 or not os.path.isfile(agent_smoke_path):
+    raise RuntimeError(
+        f"Frozen Agent spec smoke failed: exit={smoke.returncode}, output={agent_smoke_path}"
+    )
+with open(agent_smoke_path, "r", encoding="utf-8") as stream:
+    smoke_payload = json.load(stream)
+if (
+    smoke_payload.get("ok") is not True
+    or smoke_payload.get("result", {}).get("runtime_identity", {}).get("runtime_mode")
+    != "installed"
+    or smoke_payload.get("result", {}).get("spec", {}).get("application", {}).get("version")
+    != APP_VERSION
+):
+    raise RuntimeError(f"Frozen Agent spec smoke returned unexpected data: {smoke_payload}")
+os.remove(agent_smoke_path)
+print("[Verify] Frozen Agent spec smoke passed")
 
 # ── 10. 复制到桌面 ──
 source = os.path.join(DIST_DIR, "LensDrawing")

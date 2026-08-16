@@ -5,8 +5,20 @@ Persists user preferences to JSON file.
 import json
 import os
 import math
+import sys
+from copy import deepcopy
 
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_settings.json")
+
+def _settings_file_path():
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(
+            os.path.expanduser("~"), "AppData", "Local"
+        )
+        return os.path.join(base, "LensDrawing", "app_settings.json")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_settings.json")
+
+
+SETTINGS_FILE = _settings_file_path()
 
 DEFAULT_SETTINGS = {
     "J_multiplier": 0.10,
@@ -43,6 +55,15 @@ DEFAULT_SETTINGS = {
     "proc_vendor": "CDGM",                # 变量23：玻璃厂商
     "proc_ranking": "01",                 # 变量24：玻璃品级
     "proc_molding": "Molding",            # Scribe&Break/Molding 右侧值
+    "proc_chipping": "0.2",
+    "proc_roughness": "0.01",
+    "proc_ink_brand": "GT-7II",
+    "proc_ink_proportion": "8: 1: 9(Paint: Curing agent: Diluent)",
+    "proc_ink_thickness": "3~5um",
+    "proc_spraying_position": "Arrow indication The dashed line",
+    "proc_dimensions_rule": "According to the drawing",
+    "proc_ink_leakage": "0.1",
+    "special_notes": "",
     # 镀膜预设
     "coat_preset": "SQ-A1",
     # 镀膜波段默认值
@@ -63,6 +84,11 @@ DEFAULT_SETTINGS = {
     # CA自动计算系数
     "ca_ratio": 0.94,
 }
+
+
+def get_agent_default_settings():
+    """Return the immutable V4 Agent baseline, never persisted GUI preferences."""
+    return deepcopy(DEFAULT_SETTINGS)
 
 
 def validate_settings_updates(updates):
@@ -185,5 +211,6 @@ def save_settings(settings):
     coerced["proc_N_manual"] = str(n_manual)
     if coerced.get("coat_preset") == "SQ-A3":
         coerced["coat_preset"] = "SQ-A6"
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(coerced, f, indent=2, ensure_ascii=False)

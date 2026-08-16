@@ -107,6 +107,10 @@ def validate_inputs(version):
     required = (
         PROJECT_ROOT / "dist" / "LensDrawing" / "LensDrawing.exe",
         PROJECT_ROOT / "dist" / "LensDrawing" / "_internal",
+        PROJECT_ROOT / "dist" / "LensDrawing" / "agent_resources"
+        / "lens_drawing_agent_spec.json",
+        PROJECT_ROOT / "dist" / "LensDrawing" / "skills"
+        / "lens-drawing-agent" / "SKILL.md",
         PROJECT_ROOT / f"V{version}_版本更新说明.md",
         PROJECT_ROOT / "installer_deps" / "vc_redist.x64.exe",
     )
