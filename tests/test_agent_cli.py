@@ -28,7 +28,7 @@ class AgentCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["command"], "spec")
-        self.assertEqual(payload["interface_version"], "4.0.0")
+        self.assertEqual(payload["interface_version"], "4.1.0")
         self.assertEqual(
             payload["result"]["spec_sha256"],
             payload["result"]["runtime_identity"]["agent_spec_sha256"],
@@ -50,7 +50,7 @@ class AgentCliTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["result"]["interface_version"], "4.0.0")
+        self.assertEqual(payload["result"]["interface_version"], "4.1.0")
 
     def test_frozen_mode_ignores_present_but_invalid_console_handle(self):
         class InvalidConsole:

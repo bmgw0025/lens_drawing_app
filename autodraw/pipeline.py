@@ -11,6 +11,7 @@ from typing import Any
 
 from settings import get_agent_default_settings
 
+from .geometry_resolution import apply_geometry_decision, build_geometry_cases
 from .mapper import map_to_drafts
 from .models import Provenance
 from .naming import resolve_naming_policy
@@ -120,6 +121,7 @@ def _manufacturing_delivery_payload(
     patch: ApprovedProcessPatch | None,
     effective_requirements: dict[str, Any],
     excluded_drafts: list[Any],
+    deployment_policy: dict[str, Any],
 ) -> dict[str, Any]:
     baseline = {
         key: defaults[key]
@@ -129,7 +131,12 @@ def _manufacturing_delivery_payload(
     return {
         "schema_version": "1.0",
         "default_policy": {
-            "source": "immutable Agent baseline bundled with this Lens Drawing version",
+            "source": "approved task-local deployment_policy.json snapshot",
+            "policy_id": deployment_policy.get("policy_id"),
+            "policy_sha256": deployment_policy.get("policy_sha256"),
+            "manufacturing_defaults_sha256": deployment_policy.get(
+                "manufacturing_defaults_sha256"
+            ),
             "persisted_gui_settings_used": False,
             "unspecified_fields_use_baseline": True,
         },
@@ -168,7 +175,8 @@ def _manufacturing_delivery_markdown(payload: dict[str, Any]) -> str:
     lines = [
         "# 本次出图加工要求与特殊处理",
         "",
-        "- Agent 默认值来源：当前 Lens Drawing 版本内置固定基准",
+        "- Agent 默认值来源：任务锁定的部署级批准策略",
+        f"- 部署策略：{payload['default_policy'].get('policy_id', '')}",
         "- 使用 GUI 上次持久化设置：否",
         "- 未提及的加工字段：使用下表默认值",
         "",
@@ -225,18 +233,46 @@ def run_pipeline(
     naming_overrides: dict[str, dict[str, str]] | None = None,
     naming_policy: dict[str, Any] | None = None,
     task_context: dict[str, Any] | None = None,
-    geometry_acknowledgements: dict[str, Any] | None = None,
+    deployment_policy: dict[str, Any] | None = None,
+    geometry_cases: dict[str, Any] | None = None,
+    geometry_decision: dict[str, Any] | None = None,
+    zosapi_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # The bridge is a one-shot isolated process; never write bytecode into the renderer checkout.
     sys.dont_write_bytecode = True
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     destination = _prepare_destination(output_dir)
     started_at = datetime.now(timezone.utc).isoformat()
-    with NativeZosApiProvider() as provider:
+    zosapi_config = zosapi_config or {}
+    provider_options = {}
+    if zosapi_config.get("opticstudio_install_dir"):
+        provider_options["install_dir"] = zosapi_config["opticstudio_install_dir"]
+    if zosapi_config.get("zemax_root"):
+        provider_options["zemax_root"] = zosapi_config["zemax_root"]
+    with NativeZosApiProvider(**provider_options) as provider:
         system = provider.extract(source_file)
     _write_json(destination / "extracted_system.json", system.to_dict())
 
     drafts = map_to_drafts(system)
+    task_id = (
+        str(task_context.get("task_id", "standalone-pipeline"))
+        if isinstance(task_context, dict)
+        else "standalone-pipeline"
+    )
+    current_geometry_cases = build_geometry_cases(system, drafts, task_id=task_id)
+    if geometry_cases is not None and current_geometry_cases != geometry_cases:
+        raise ValueError(
+            "执行时重新提取的 geometry_cases 与任务创建时快照不一致"
+        )
+    locked_geometry_cases = geometry_cases or current_geometry_cases
+    if locked_geometry_cases.get("resolution_required"):
+        if geometry_decision is None:
+            raise ValueError("执行任务缺少已冻结的 geometry_resolution.json")
+        drafts = apply_geometry_decision(
+            drafts, locked_geometry_cases, geometry_decision
+        )
+    elif geometry_decision is not None:
+        raise ValueError("当前任务不需要 geometry_resolution.json")
     drawable_drafts = [draft for draft in drafts if draft.status == "accepted"]
     excluded_drafts = [draft for draft in drafts if draft.status == "excluded"]
     if naming_policy is not None:
@@ -296,7 +332,17 @@ def run_pipeline(
         validate_patch_for_drafts(patch, drafts)
     renderer_root_path = Path(renderer_root).resolve()
     renderer_manifest_before = renderer_source_manifest(renderer_root_path)
-    defaults: dict[str, Any] = get_agent_default_settings()
+    if deployment_policy is None:
+        defaults = get_agent_default_settings()
+        deployment_policy = {
+            "policy_id": "standalone-embedded-defaults",
+            "policy_sha256": None,
+            "manufacturing_defaults_sha256": None,
+            "manufacturing_defaults": {},
+        }
+    else:
+        defaults = get_agent_default_settings()
+        defaults.update(deployment_policy.get("manufacturing_defaults", {}))
     _write_json(destination / "ai_work_order.json", build_ai_work_order(draft_payload, defaults))
     effective_requirements = _build_effective_requirements(drafts, defaults, patch)
     effective_requirements_path = destination / "effective_manufacturing_requirements.json"
@@ -306,6 +352,7 @@ def run_pipeline(
         patch,
         effective_requirements,
         excluded_drafts,
+        deployment_policy,
     )
     manufacturing_delivery_path = destination / "manufacturing_requirements_delivery.json"
     manufacturing_summary_path = destination / "manufacturing_requirements_summary.md"
@@ -321,7 +368,13 @@ def run_pipeline(
             continue
         try:
             rendered.append(
-                render_draft(draft, destination, renderer_root_path, patch)
+                render_draft(
+                    draft,
+                    destination,
+                    renderer_root_path,
+                    patch,
+                    base_settings=defaults,
+                )
             )
         except Exception as exc:
             render_errors.append(
@@ -338,41 +391,10 @@ def run_pipeline(
         raise RuntimeError("只读绘图引擎源码在运行期间发生变化，已拒绝生成完成审计")
     geometry_ready = bool(drafts) and not blocked and not render_errors
     drawings_generated = geometry_ready and len(rendered) == len(drawable_drafts)
-    geometry_review_fields = []
-    acknowledged_fields = (
-        geometry_acknowledgements.get("fields", {})
-        if isinstance(geometry_acknowledgements, dict)
-        else {}
-    )
-    for draft in drafts:
-        if draft.status != "accepted":
-            continue
-        for provenance in draft.provenance:
-            if provenance.field.startswith(
-                ("Glass", "T", "R", "MD", "AD", "Lens")
-            ):
-                if provenance.confidence != "high":
-                    expected_value = provenance.converted_value
-                    supplied = acknowledged_fields.get(
-                        str(draft.group_index), {}
-                    ).get(provenance.field, object())
-                    acknowledged = supplied == expected_value
-                    geometry_review_fields.append(
-                        {
-                            "group_index": draft.group_index,
-                            "field": provenance.field,
-                            "value": expected_value,
-                            "source": provenance.source,
-                            "confidence": provenance.confidence,
-                            "acknowledged": acknowledged,
-                        }
-                    )
-    outstanding_geometry_review_fields = [
-        item for item in geometry_review_fields if not item["acknowledged"]
-    ]
-    geometry_review_required = bool(outstanding_geometry_review_fields)
     manufacturing_review_status = (
-        "approved_patch" if patch is not None else "renderer_defaults_require_explicit_approval"
+        "deployment_policy_and_validated_overrides"
+        if patch is not None
+        else "missing_request_patch"
     )
     execution_mode = (
         task_context.get("execution_mode", "production")
@@ -394,9 +416,11 @@ def run_pipeline(
         },
         "geometry_inference_method": (
             "GLAS-after-surface intervals + direct or coincident zero-thickness virtual cemented "
-            "interfaces + side-specific/shared MEMA evidence + MD >= adjacent AD constraints; "
-            "unresolved different viable candidates are blocked"
+            "interfaces + side-specific AD/MEMA candidates + Agent candidate-ID selection + "
+            "MD >= adjacent AD constraints"
         ),
+        "geometry_cases": locked_geometry_cases,
+        "geometry_resolution": geometry_decision,
         "accepted_groups": [draft.group_index for draft in drafts if draft.status == "accepted"],
         "excluded_groups": [draft.group_index for draft in drafts if draft.status == "excluded"],
         "excluded_components": [
@@ -438,6 +462,13 @@ def run_pipeline(
             if draft.warnings
         ],
         "process_patch": asdict(patch) if patch is not None else None,
+        "deployment_policy": {
+            "policy_id": deployment_policy.get("policy_id"),
+            "policy_sha256": deployment_policy.get("policy_sha256"),
+            "manufacturing_defaults_sha256": deployment_policy.get(
+                "manufacturing_defaults_sha256"
+            ),
+        },
         "naming_overrides": naming_overrides or {},
         "agent_task": task_context,
         "execution_mode": execution_mode,
@@ -446,21 +477,20 @@ def run_pipeline(
         "manufacturing_requirements_summary_file": str(manufacturing_summary_path),
         "automatic_geometry_ready": geometry_ready,
         "drawings_generated": drawings_generated,
-        "geometry_review_required": geometry_review_required,
-        "geometry_review_fields": geometry_review_fields,
-        "outstanding_geometry_review_fields": outstanding_geometry_review_fields,
-        "geometry_acknowledgements": geometry_acknowledgements,
+        "geometry_resolution_required": bool(
+            locked_geometry_cases.get("resolution_required")
+        ),
+        "geometry_resolution_applied": bool(geometry_decision),
         "manufacturing_review_status": manufacturing_review_status,
         "production_release_ready": (
             execution_mode == "production"
             and drawings_generated
             and patch is not None
-            and not geometry_review_required
+            and bool(deployment_policy.get("policy_id"))
         ),
         "notes": [
             "Geometry came from evaluated ZOS-API values; the source ZMX was closed without saving.",
-            "Manufacturing requirements use renderer defaults unless an explicitly approved patch is supplied.",
-            "A generated PDF is not production-release-ready until manufacturing requirements have explicit evidence-backed approval.",
+            "Manufacturing defaults come from the task-local approved deployment policy; user evidence is required only for explicit overrides.",
             "PartNo is an audit identifier only when generated naming is explicitly selected; production_sequence uses the approved production-code sequence.",
             "Excluded H-K9L plane-plane prism groups are listed in the manufacturing delivery files and receive no PDF.",
         ],

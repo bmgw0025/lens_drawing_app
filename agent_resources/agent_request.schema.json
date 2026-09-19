@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:lens-drawing:agent-request:1.1",
+  "$id": "urn:lens-drawing:agent-request:1.2",
   "title": "Lens Drawing Agent Request",
   "type": "object",
   "additionalProperties": false,
@@ -11,12 +11,11 @@
     "user_evidence",
     "requirement_analysis",
     "naming",
-    "geometry_review",
     "manufacturing_requirements",
     "execution"
   ],
   "properties": {
-    "schema_version": {"const": "1.1"},
+    "schema_version": {"const": "1.2"},
     "task_id": {"type": "string", "minLength": 1},
     "source": {
       "type": "object",
@@ -44,10 +43,52 @@
     },
     "requirement_analysis": {
       "type": "object",
-      "required": ["user_goal_summary", "decisions", "evidence_disposition", "assumptions", "unresolved_questions"],
+      "required": [
+        "user_goal_summary",
+        "decisions",
+        "evidence_disposition",
+        "assumptions",
+        "unresolved_questions"
+      ],
       "properties": {
         "user_goal_summary": {"type": "string", "minLength": 1},
-        "decisions": {"type": "array"},
+        "decisions": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["category", "statement", "evidence_ids"],
+                "properties": {
+                  "category": {"enum": ["naming", "manufacturing_complete"]},
+                  "statement": {"type": "string", "minLength": 1},
+                  "evidence_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1}
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["category", "confirmation_id", "statement", "evidence_ids"],
+                "properties": {
+                  "category": {"const": "geometry_confirmation"},
+                  "confirmation_id": {"type": "string", "minLength": 1},
+                  "statement": {"type": "string", "minLength": 1},
+                  "evidence_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1}
+                  }
+                }
+              }
+            ]
+          }
+        },
         "evidence_disposition": {"type": "object"},
         "assumptions": {"type": "array", "maxItems": 0},
         "unresolved_questions": {"type": "array", "maxItems": 0}
@@ -114,16 +155,58 @@
         }
       ]
     },
-    "geometry_review": {"type": "object"},
-    "manufacturing_requirements": {"type": "object"},
+    "manufacturing_requirements": {
+      "type": "object",
+      "required": [
+        "approval_status",
+        "approve_effective_manufacturing_requirements",
+        "approval_source",
+        "policy_id",
+        "policy_sha256",
+        "approved_by",
+        "approved_at",
+        "source",
+        "reason",
+        "evidence_ids",
+        "field_evidence",
+        "global_overrides",
+        "group_overrides",
+        "page_overrides"
+      ],
+      "properties": {
+        "approval_status": {"const": "approved"},
+        "approve_effective_manufacturing_requirements": {"const": true},
+        "approval_source": {"const": "deployment_policy"},
+        "policy_id": {"type": "string", "minLength": 1},
+        "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "approved_by": {"type": "string", "minLength": 1},
+        "approved_at": {"type": "string", "minLength": 1},
+        "source": {"const": "deployment_policy"},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "field_evidence": {"type": "object"},
+        "global_overrides": {"type": "object"},
+        "group_overrides": {"type": "object"},
+        "page_overrides": {"type": "object"}
+      }
+    },
     "execution": {
       "type": "object",
-      "required": ["renderer_root", "automated_pdf_validation", "human_visual_review_required"],
+      "additionalProperties": false,
+      "required": ["renderer_root", "automated_pdf_validation", "visual_review"],
       "properties": {
         "mode": {"enum": ["production", "test"]},
         "renderer_root": {"type": "string", "minLength": 1},
         "automated_pdf_validation": {"const": true},
-        "human_visual_review_required": {"const": true}
+        "visual_review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "mode"],
+          "properties": {
+            "required": {"const": true},
+            "mode": {"enum": ["vision_agent", "human_operator"]}
+          }
+        }
       }
     }
   }

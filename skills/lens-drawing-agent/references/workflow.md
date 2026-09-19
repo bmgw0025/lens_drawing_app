@@ -1,72 +1,73 @@
 # Agent Workflow
 
-## Contents
+## Create
 
-- Discover and create
-- Analyze user requirements
-- Build and submit the request
-- Validate, run, and review
-- Production and test evidence
-
-## Discover and Create
-
-Run `spec` at the start of every new task or resumed task after an application update. The wrapper rejects a Skill/EXE spec mismatch.
-
-Run:
+Run spec, then:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 create "C:\path\input.zmx" "C:\path\new-task"
+powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 create "C:\path\input.zmx" "C:\path\new-task" --deployment-policy "C:\ProgramData\LensBot\deployment_policy.json"
 ```
 
-The task directory must not exist or must be empty. `create` opens the ZMX through a serialized, read-only ZOS-API session, stores evaluated values, closes without saving, maps geometry deterministically, and snapshots the protocol/schema/spec/runtime identity.
+create snapshots the protocol, Schema, generated spec, deployment policy, runtime identity, renderer manifest, ZOS-API extraction and geometry candidate set.
 
-If `task_state.status` is `blocked_geometry`, report the exact blockers from `source_analysis/drawing_drafts.json`. Do not continue to manufacturing approval or try to repair geometry through the request.
+Read in order:
 
-## Analyze User Requirements
+1. task_state.json
+2. AGENT_PROTOCOL.md
+3. source_analysis/analysis_summary.json
+4. source_analysis/geometry_cases.json
+5. source_analysis/drawing_drafts.json
+6. source_analysis/agent_work_order.json
+7. agent_request.json
 
-Read these files in order:
+blocked_geometry means at least one hard_blocker cannot be removed by model selection. Explain the exact surface evidence and ask for a corrected/standardized ZMX when appropriate.
 
-1. `task_state.json`
-2. `AGENT_PROTOCOL.md`
-3. `AGENT_HANDOFF.md`
-4. `source_analysis/analysis_summary.json`
-5. `source_analysis/drawing_drafts.json`
-6. `source_analysis/agent_work_order.json`
-7. `agent_request.json`
+## Resolve Geometry
 
-Resolve only these decision classes:
-
-- `naming`: normally collect `lens_model` for SavePdfFolder, `lens_element_model` for MfrPdfFolder and sequential PartName, and `first_production_code` for sequential PartNo. Excluded prism groups do not consume a sequence number.
-- `manufacturing_complete`: explicit overrides plus approval of all effective defaults.
-- `geometry_review`: exact acknowledgement of only the medium-confidence fields already listed by the task.
-
-When the user says there are no special manufacturing requirements, use the immutable Agent baseline for every unmentioned field and retain an explicit approval statement. Never use persisted GUI settings. Silence is not approval.
-
-Never infer a manufacturing tolerance, CA, chamfer, coating, ink, roughness, chipping rule, vendor, glass rank, molding method, signature, or special note without user evidence. Natural-language specialization is allowed only by mapping evidence to fields present in the current generated spec.
-
-## Build and Submit the Request
-
-Preserve the generated `task_id`, source path, source SHA-256, and geometry-review field values. Build a candidate JSON outside the task directory.
-
-For production evidence, use:
+When status is awaiting_geometry_resolution, select every required topology and field candidate. The decision must not contain numeric geometry.
 
 ```json
 {
-  "id": "user-001",
-  "kind": "user_message",
-  "content": "Use the automatic audit name and all current default manufacturing requirements.",
-  "captured_at": "2026-08-14T12:00:00+08:00",
-  "source_ref": "current-user-message"
+  "schema_version": "1.0",
+  "task_id": "LD-001",
+  "cases": [
+    {
+      "case_id": "group-1",
+      "topology_candidate_id": "topology-g1-fold-3-4",
+      "field_selections": {
+        "Lens1.AD_right": "ad-g1-l1-right-s3",
+        "Lens2.AD_left": "ad-g1-l2-left-s4",
+        "MD1": "md-g1-l1-c1",
+        "MD2": "md-g1-l2-c1"
+      },
+      "reason": "GLAS intervals and the two coincident virtual surfaces map to the adjacent physical lens sides."
+    }
+  ]
 }
 ```
 
-For an attachment, add `source_ref` as the current readable local path and `sha256` as the current file hash. Every evidence item needs an `evidence_disposition` entry with `mapped` or `no_action`, targets, and an explanation.
+If two different values remain equally feasible after surface order and boundary association are considered, do not guess. Ask the internal technician and wait.
 
-Every actual override needs `field_evidence` pointing to one or more evidence IDs at the same scope:
+After resolve-geometry, read task_state.required_geometry_confirmations. A medium-confidence candidate such as an Automatic MEMA remains unapproved even when it is the only candidate. Send every stored prompt through the host and wait for a user_message or attachment response.
 
-- `global_overrides.<field>`
-- `group_overrides.<group>.<field>`
-- `page_overrides.<group>.<page>.<field>`
+## Build Request
+
+Naming normally uses production_sequence. Deployment policy supplies every unspecified manufacturing default. Map only explicit user special requirements to global_overrides, group_overrides or page_overrides, with matching field_evidence.
+
+The manufacturing_requirements policy_id, policy_sha256, approved_by and approved_at must remain identical to the generated task request. Do not add geometry_review; geometry was frozen by resolve-geometry.
+
+For every required confirmation, add exactly one decision:
+
+~~~json
+{
+  "category": "geometry_confirmation",
+  "confirmation_id": "group-1:MD2:md-g1-l2-c1",
+  "statement": "The internal technician confirmed this evaluated MEMA as MD2.",
+  "evidence_ids": ["user-confirm-md2"]
+}
+~~~
+
+Map the same evidence to geometry_confirmation.<confirmation_id> in evidence_disposition. Remove the matching unresolved question only after that evidence exists.
 
 Submit and validate:
 
@@ -75,32 +76,10 @@ powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 sub
 powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 validate "C:\path\task"
 ```
 
-Do not directly edit the submitted `agent_request.json`. Submit a new version while the task state still allows it.
+## Run And Delivery
 
-## Validate, Run, and Human Review
+Run only when ready. Lens Drawing reopens the same ZMX read-only, regenerates the candidate set, compares it with the task snapshot, reapplies the frozen selection and then renders.
 
-Run only when validation reports `valid: true` and task status is `ready`:
+After automated PDF validation, the task enters awaiting_visual_review. The host gives every contact sheet, PDF hash and fixed prompt to the configured reviewer. The host validates the structured response and invokes review. The main Agent never calls review.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 run "C:\path\task"
-```
-
-Read `result/pdf_validation_report.json`. Automated checks validate page counts, expected fields, text, rendered pixels, crop safety, and output integrity. They do not replace human visual review.
-
-When `task_state.status` becomes `awaiting_human_review`, the Agent must stop. An authorized human operator inspects every `validation_render/contact_sheet_*.png` and, when needed, individual PDF pages. The operator confirms geometry, title blocks, dimensions, tolerances, CA/chamfers, notes, coating/spraying tables, page order, clipping, overlap, and readable text.
-
-The operator records the result:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Invoke-LensDrawingAgent.ps1 review "C:\path\task" --status passed --reviewer "operator-id" --note "Manually reviewed every page; no overlap, clipping, or field mismatch."
-```
-
-If review fails, record `failed`; do not overwrite the task. Create a new task after correcting the implementation or requirements.
-
-## Production and Test Evidence
-
-`production` accepts only real `user_message` and hash-verified `attachment` evidence. It completes only when manufacturing approval, any geometry acknowledgement, automated PDF checks, human visual review, and the production release gate all pass.
-
-`test` may use `operator_record` to exercise the interface. A completed test task proves the software loop only and must not be represented as user-authorized manufacturing output.
-
-At delivery, include both PDF variants for every drawable group, `manufacturing_requirements_summary.md`, its JSON companion, all geometry warnings, and every excluded-prism record from `delivery_manifest.json`.
+Only completed permits delivery from delivery_manifest.json. Include both PDF variants, manufacturing summaries, geometry warnings, exclusions and visual_review.json.

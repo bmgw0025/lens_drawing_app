@@ -12,7 +12,8 @@ from autodraw.agent_tasks import (
     create_agent_task,
     get_capabilities,
     get_task_status,
-    record_human_visual_review,
+    record_visual_review,
+    resolve_agent_geometry,
     run_agent_task,
     submit_agent_request,
     validate_agent_request,
@@ -121,6 +122,15 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("zmx")
     create.add_argument("task_dir")
     create.add_argument("--renderer-root", default=str(DEFAULT_RENDERER_ROOT))
+    create.add_argument("--deployment-policy", required=True)
+    create.add_argument("--zemax-root")
+    create.add_argument("--opticstudio-install-dir")
+
+    resolve = subparsers.add_parser(
+        "resolve-geometry", help="仅从冻结候选 ID 选择虚拟面和 AD/MD 归属"
+    )
+    resolve.add_argument("task_dir")
+    resolve.add_argument("decision_file")
 
     validate = subparsers.add_parser("validate", help="校验 Agent 填写的需求包")
     validate.add_argument("task_dir")
@@ -135,10 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="读取跨对话权威任务状态")
     status.add_argument("task_dir")
 
-    review = subparsers.add_parser("review", help="记录人工操作员对全部 PDF 页面的视觉验收")
+    review = subparsers.add_parser("review", help="记录配置的结构化视觉验收")
     review.add_argument("task_dir")
     review.add_argument("--status", required=True, choices=("passed", "failed"))
+    review.add_argument("--kind", required=True, choices=("vision_agent", "human_operator"))
     review.add_argument("--reviewer", required=True)
+    review.add_argument("--report", required=True)
     review.add_argument("--note", required=True)
     return parser
 
@@ -171,9 +183,22 @@ def main(argv: list[str] | None = None) -> int:
             code = 0
         elif args.command == "create":
             payload = create_agent_task(
-                args.zmx, args.task_dir, renderer_root=args.renderer_root
+                args.zmx,
+                args.task_dir,
+                renderer_root=args.renderer_root,
+                deployment_policy=args.deployment_policy,
+                zemax_root=args.zemax_root,
+                opticstudio_install_dir=args.opticstudio_install_dir,
             )
-            code = 2 if payload["status"] == "blocked_geometry" else 0
+            code = (
+                2
+                if payload["status"]
+                in {"blocked_geometry", "awaiting_geometry_resolution"}
+                else 0
+            )
+        elif args.command == "resolve-geometry":
+            payload = resolve_agent_geometry(args.task_dir, args.decision_file)
+            code = 0 if payload["status"] == "needs_input" else 2
         elif args.command == "submit":
             payload = submit_agent_request(args.task_dir, args.request_file)
             code = 0
@@ -184,12 +209,14 @@ def main(argv: list[str] | None = None) -> int:
             payload = run_agent_task(args.task_dir)
             state = get_task_status(args.task_dir)
             payload = {"state": state, "audit": payload}
-            code = 0 if state["status"] in {"awaiting_human_review", "completed"} else 2
+            code = 0 if state["status"] in {"awaiting_visual_review", "completed"} else 2
         elif args.command == "review":
-            payload = record_human_visual_review(
+            payload = record_visual_review(
                 args.task_dir,
                 status=args.status,
+                kind=args.kind,
                 reviewer=args.reviewer,
+                report_file=args.report,
                 note=args.note,
             )
             code = 0 if payload["completed"] else 2

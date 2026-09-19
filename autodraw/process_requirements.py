@@ -336,7 +336,7 @@ def validate_patch_for_drafts(
 
 def build_ai_work_order(drafts: list[dict[str, Any]], defaults: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "4.0",
+        "schema_version": "4.1",
         "purpose": (
             "Agent may explain topology evidence and translate explicit user requirements into "
             "approved manufacturing assignments; geometry and acceptance status are immutable"

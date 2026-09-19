@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "provider": "volcengine-coding",
+  "api": "openai-responses",
+  "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+  "api_key_secret": "volcengine_api_key",
+  "main": {
+    "model": "glm-5.3",
+    "input": [
+      "text"
+    ],
+    "thinking_level": "max"
+  },
+  "vision": {
+    "model": "minimax-m3",
+    "input": [
+      "text",
+      "image"
+    ],
+    "thinking_level": "max"
+  },
+  "probe_policy": {
+    "require_text": true,
+    "require_tool_call": true,
+    "require_tool_continuation": true,
+    "require_json_schema": true,
+    "require_image": true,
+    "on_reasoning_effort_rejected": "retry_without_effort_only",
+    "allow_model_fallback": false
+  }
+}
+

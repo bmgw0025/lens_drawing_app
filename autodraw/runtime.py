@@ -34,6 +34,8 @@ CORE_SOURCE_FILES = (
     "autodraw/spec.py",
     "autodraw/models.py",
     "autodraw/mapper.py",
+    "autodraw/geometry_resolution.py",
+    "autodraw/deployment_policy.py",
     "autodraw/naming.py",
     "autodraw/process_requirements.py",
     "autodraw/renderer_adapter.py",

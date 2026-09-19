@@ -19,6 +19,13 @@ from app_version import (
 )
 from settings import get_agent_default_settings
 
+from .deployment_policy import DeploymentPolicyError, load_deployment_policy
+from .geometry_resolution import (
+    GeometryResolutionError,
+    apply_geometry_decision,
+    build_geometry_cases,
+    system_from_payload,
+)
 from .mapper import map_to_drafts
 from .naming import NamingError, resolve_naming_policy, validate_naming_policy_shape
 from .pipeline import run_pipeline
@@ -44,9 +51,13 @@ SPEC_FILE = "lens_drawing_agent_spec.json"
 ANALYSIS_DIR = "source_analysis"
 RESULT_DIR = "result"
 RENDER_DIR = "validation_render"
-HUMAN_REVIEW_FILE = "human_visual_review.json"
+DEPLOYMENT_POLICY_FILE = "deployment_policy.json"
+GEOMETRY_CASES_FILE = "geometry_cases.json"
+GEOMETRY_RESOLUTION_FILE = "geometry_resolution.json"
+VISUAL_REVIEW_FILE = "visual_review.json"
 ANALYSIS_FILES = (
     "extracted_system.json",
+    GEOMETRY_CASES_FILE,
     "drawing_drafts.json",
     "agent_work_order.json",
     "analysis_summary.json",
@@ -172,13 +183,14 @@ def get_capabilities() -> dict[str, Any]:
         "geometry_policy": {
             "source": "read-only ZOS-API extraction from one ZMX",
             "agent_mutable": False,
-            "medium_confidence_fields_require_exact_user_acknowledgement": True,
+            "agent_selects_candidate_ids_only": True,
             "authoritative_geometry": "drawing_drafts[].lenses[]",
             "virtual_interface_ad": "preserve adjacent lens side-specific AD values",
         },
         "review_policy": {
             "required": True,
-            "reviewer_kind": "human_operator",
+            "reviewer_kinds": ["vision_agent", "human_operator"],
+            "production_default": "vision_agent",
             "agent_may_record_review": False,
         },
         "analysis_manifest_files": list(ANALYSIS_FILES),
@@ -198,7 +210,10 @@ def get_capabilities() -> dict[str, Any]:
         "protocol_file": PROTOCOL_FILE,
         "request_schema_file": SCHEMA_FILE,
         "agent_spec_file": SPEC_FILE,
-        "human_review_file": HUMAN_REVIEW_FILE,
+        "deployment_policy_file": DEPLOYMENT_POLICY_FILE,
+        "geometry_cases_file": f"{ANALYSIS_DIR}/{GEOMETRY_CASES_FILE}",
+        "geometry_resolution_file": GEOMETRY_RESOLUTION_FILE,
+        "visual_review_file": VISUAL_REVIEW_FILE,
         "delivery_file": "delivery_manifest.json",
     }
 
@@ -247,6 +262,10 @@ def _write_handoff(task_dir: Path, state: dict[str, Any]) -> None:
         f"- Agent spec SHA-256: `{state.get('agent_spec_sha256', '')}`",
         f"- Runtime identity: `{state.get('agent_runtime_identity', {})}`",
         f"- Source analysis manifest entries: `{len(state.get('source_analysis_manifest_sha256', {}))}`",
+        f"- Deployment policy: `{task_dir / DEPLOYMENT_POLICY_FILE}`",
+        f"- Deployment policy SHA-256: `{state.get('deployment_policy_sha256', '')}`",
+        f"- Geometry cases: `{task_dir / ANALYSIS_DIR / GEOMETRY_CASES_FILE}`",
+        f"- Geometry resolution: `{task_dir / GEOMETRY_RESOLUTION_FILE}`",
         f"- Request: `{task_dir / REQUEST_FILE}`",
         f"- Request validation: `{task_dir / 'request_validation.json'}`",
         f"- Result: `{result_dir or ''}`",
@@ -255,10 +274,10 @@ def _write_handoff(task_dir: Path, state: dict[str, Any]) -> None:
         "",
         "1. Read `task_state.json` first; do not infer status from chat history.",
         "2. Read task-local `AGENT_PROTOCOL.md`, spec and `source_analysis/agent_work_order.json`.",
-        "3. Never edit Glass/T/R/MD/AD or topology acceptance in the request.",
+        "3. Resolve geometry only by selecting IDs from geometry_cases.json.",
         "4. Link every naming and manufacturing decision to a user evidence ID.",
         "5. Do not run while `requirement_analysis.unresolved_questions` is non-empty.",
-        "6. A completed task requires automated PDF checks and a human operator visual review record.",
+        "6. A completed task requires automated PDF checks and the configured visual review record.",
     ]
     if questions:
         lines.extend(["", "## Unresolved Questions", ""])
@@ -277,36 +296,37 @@ def _load_analysis(task_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]
 
 
 def _draft_objects_from_analysis(task_dir: Path) -> list[Any]:
-    # Re-run the mapper over the stored extracted values without opening OpticStudio.
-    from .models import ExtractedSystem, SurfaceRecord
-
-    system_payload, _, _ = _load_analysis(task_dir)
-    def restored(value: Any) -> Any:
-        if value == "Infinity":
-            return math.inf
-        if value == "-Infinity":
-            return -math.inf
-        if value == "NaN":
-            return math.nan
-        return value
-
-    surfaces = []
-    for payload in system_payload["surfaces"]:
-        item = dict(payload)
-        for key in (
-            "radius", "thickness", "semi_diameter", "mechanical_semi_diameter",
-            "explicit_aperture_radius",
-        ):
-            item[key] = restored(item.get(key))
-        surfaces.append(SurfaceRecord(**item))
-    system = ExtractedSystem(
-        **{key: value for key, value in system_payload.items() if key != "surfaces"},
-        surfaces=surfaces,
+    system_payload, stored_drafts, _ = _load_analysis(task_dir)
+    system = system_from_payload(system_payload)
+    drafts = map_to_drafts(system)
+    stored_cases = _read_json(task_dir / ANALYSIS_DIR / GEOMETRY_CASES_FILE)
+    current_cases = build_geometry_cases(
+        system, drafts, task_id=_load_state(task_dir)["task_id"]
     )
-    return map_to_drafts(system)
+    if current_cases != stored_cases:
+        raise AgentTaskError("geometry_cases.json 与已提取 ZOS-API 数据不一致")
+    resolution_path = task_dir / GEOMETRY_RESOLUTION_FILE
+    if current_cases.get("resolution_required"):
+        if not resolution_path.is_file():
+            raise AgentTaskError("任务尚未完成 resolve-geometry")
+        try:
+            drafts = apply_geometry_decision(
+                drafts, current_cases, _read_json(resolution_path)
+            )
+        except GeometryResolutionError as exc:
+            raise AgentTaskError(str(exc)) from exc
+    if [draft.to_dict() for draft in drafts] != stored_drafts:
+        raise AgentTaskError("drawing_drafts.json 与权威几何候选/选择不一致")
+    return drafts
 
 
-def _request_template(task_id: str, source: Path, source_hash: str) -> dict[str, Any]:
+def _request_template(
+    task_id: str,
+    source: Path,
+    source_hash: str,
+    renderer_root: Path,
+    policy: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "schema_version": REQUEST_SCHEMA_VERSION,
         "task_id": task_id,
@@ -322,7 +342,6 @@ def _request_template(task_id: str, source: Path, source_hash: str) -> dict[str,
             "assumptions": [],
             "unresolved_questions": [
                 "请提供镜头型号、镜片型号和首枚生产编码，并确认顺序递增规则。",
-                "请确认特殊加工要求；未提及字段将使用当前版本固定的 Agent 默认值。",
             ],
         },
         "naming": {
@@ -333,21 +352,16 @@ def _request_template(task_id: str, source: Path, source_hash: str) -> dict[str,
             "element_sequence_start": 1,
             "evidence_ids": [],
         },
-        "geometry_review": {
-            "approval_status": "proposed",
-            "approved_by": "",
-            "approved_at": "",
-            "reason": "",
-            "evidence_ids": [],
-            "fields": {},
-        },
         "manufacturing_requirements": {
-            "approval_status": "proposed",
-            "approve_effective_manufacturing_requirements": False,
-            "approved_by": "",
-            "approved_at": "",
-            "source": "user-explicit-via-agent",
-            "reason": "",
+            "approval_status": "approved",
+            "approve_effective_manufacturing_requirements": True,
+            "approval_source": "deployment_policy",
+            "policy_id": policy["policy_id"],
+            "policy_sha256": policy["policy_sha256"],
+            "approved_by": policy["approved_by"],
+            "approved_at": policy["approved_at"],
+            "source": "deployment_policy",
+            "reason": "部署级加工默认值已批准；本任务仅记录用户明确提出的覆盖项。",
             "evidence_ids": [],
             "field_evidence": {
                 "global_overrides": {},
@@ -360,11 +374,78 @@ def _request_template(task_id: str, source: Path, source_hash: str) -> dict[str,
         },
         "execution": {
             "mode": "production",
-            "renderer_root": str(DEFAULT_RENDERER_ROOT),
+            "renderer_root": str(renderer_root),
             "automated_pdf_validation": True,
-            "human_visual_review_required": True,
+            "visual_review": {
+                "required": True,
+                "mode": policy["visual_review"]["mode"],
+            },
         },
     }
+
+
+def _analysis_summary_payload(
+    drafts: list[Any],
+    geometry_cases: dict[str, Any],
+    *,
+    resolved: bool,
+) -> dict[str, Any]:
+    return {
+        "accepted_groups": [d.group_index for d in drafts if d.status == "accepted"],
+        "excluded_groups": [d.group_index for d in drafts if d.status == "excluded"],
+        "blocked_groups": [
+            d.group_index
+            for d in drafts
+            if d.status not in NON_BLOCKING_GEOMETRY_STATUSES
+        ],
+        "hard_blocked_groups": geometry_cases.get("hard_blocked_groups", []),
+        "geometry_resolution_required": bool(
+            geometry_cases.get("resolution_required")
+        ),
+        "geometry_resolved": resolved,
+        "required_customer_confirmations": (
+            _geometry_confirmation_requirements(drafts) if resolved else []
+        ),
+        "group_count": len(drafts),
+        "group_topologies": [
+            {
+                "group_index": d.group_index,
+                "group_type": d.topology.get("group_type"),
+                "surface_range": d.surface_range,
+                "status": d.status,
+                "warnings": d.warnings,
+                "blockers": d.blockers,
+            }
+            for d in drafts
+        ],
+        "geometry_cases": [
+            {
+                "case_id": case["case_id"],
+                "group_index": case["group_index"],
+                "resolution_required": case["resolution_required"],
+                "required_field_selections": case["required_field_selections"],
+                "hard_blockers": case["hard_blockers"],
+            }
+            for case in geometry_cases.get("cases", [])
+        ],
+    }
+
+
+def _geometry_confirmation_requirements(
+    drafts: list[Any],
+) -> list[dict[str, Any]]:
+    requirements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for draft in drafts:
+        for item in draft.topology.get("required_customer_confirmations", []):
+            if not isinstance(item, dict):
+                continue
+            confirmation_id = str(item.get("confirmation_id", "")).strip()
+            if not confirmation_id or confirmation_id in seen:
+                continue
+            seen.add(confirmation_id)
+            requirements.append(dict(item))
+    return sorted(requirements, key=lambda item: item["confirmation_id"])
 
 
 def create_agent_task(
@@ -372,11 +453,19 @@ def create_agent_task(
     task_dir: str | os.PathLike[str],
     *,
     renderer_root: str | os.PathLike[str] = DEFAULT_RENDERER_ROOT,
+    deployment_policy: str | os.PathLike[str],
+    zemax_root: str | os.PathLike[str] | None = None,
+    opticstudio_install_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     source = Path(source_file).resolve()
     destination = Path(task_dir).resolve()
     if not source.is_file() or source.suffix.lower() != ".zmx":
         raise AgentTaskError(f"有效的 .zmx 文件不存在: {source}")
+    policy_source = Path(deployment_policy).expanduser().resolve()
+    try:
+        load_deployment_policy(policy_source)
+    except DeploymentPolicyError as exc:
+        raise AgentTaskError(str(exc)) from exc
     if destination.exists():
         if not destination.is_dir() or any(destination.iterdir()):
             raise AgentTaskError(f"任务目录必须不存在或为空: {destination}")
@@ -392,21 +481,44 @@ def create_agent_task(
         shutil.copy2(protocol_source, destination / PROTOCOL_FILE)
         shutil.copy2(schema_source, destination / SCHEMA_FILE)
         shutil.copy2(spec_source, destination / SPEC_FILE)
+        shutil.copy2(policy_source, destination / DEPLOYMENT_POLICY_FILE)
+        policy = load_deployment_policy(destination / DEPLOYMENT_POLICY_FILE)
         protocol_hash = _sha256(destination / PROTOCOL_FILE)
         schema_hash = _sha256(destination / SCHEMA_FILE)
         agent_spec_hash = _sha256(destination / SPEC_FILE)
         locked_runtime_identity = runtime_identity()
-        with NativeZosApiProvider() as provider:
+        zosapi_config = {
+            "zemax_root": str(
+                Path(zemax_root or policy["zosapi"]["zemax_root"])
+                .expanduser()
+                .resolve()
+            ),
+            "opticstudio_install_dir": str(
+                Path(
+                    opticstudio_install_dir
+                    or policy["zosapi"]["opticstudio_install_dir"]
+                )
+                .expanduser()
+                .resolve()
+            ),
+        }
+        with NativeZosApiProvider(
+            install_dir=zosapi_config["opticstudio_install_dir"],
+            zemax_root=zosapi_config["zemax_root"],
+        ) as provider:
             system = provider.extract(source)
         drafts = map_to_drafts(system)
+        geometry_cases = build_geometry_cases(system, drafts, task_id=task_id)
         analysis_dir = destination / ANALYSIS_DIR
         analysis_dir.mkdir()
         _write_json(analysis_dir / "extracted_system.json", system.to_dict())
+        _write_json(analysis_dir / GEOMETRY_CASES_FILE, geometry_cases)
         draft_payload = [draft.to_dict() for draft in drafts]
         _write_json(analysis_dir / "drawing_drafts.json", draft_payload)
 
         renderer_path = Path(renderer_root).resolve()
         defaults: dict[str, Any] = get_agent_default_settings()
+        defaults.update(policy["manufacturing_defaults"])
         work_order = build_ai_work_order(draft_payload, defaults)
         work_order["source"] = {
             "zmx_path": str(source),
@@ -417,73 +529,49 @@ def create_agent_task(
         )
         work_order["agent_runtime_identity"] = locked_runtime_identity
         work_order["agent_spec_sha256"] = agent_spec_hash
+        work_order["deployment_policy"] = {
+            "policy_id": policy["policy_id"],
+            "policy_sha256": policy["policy_sha256"],
+            "manufacturing_defaults_sha256": policy[
+                "manufacturing_defaults_sha256"
+            ],
+        }
         _write_json(analysis_dir / "agent_work_order.json", work_order)
-        geometry_review_fields: dict[str, dict[str, Any]] = {}
-        for draft in drafts:
-            if draft.status != "accepted":
-                continue
-            fields = {
-                item.field: item.converted_value
-                for item in draft.provenance
-                if item.field.startswith(
-                    ("Glass", "T", "R", "MD", "AD", "Lens")
-                )
-                and item.confidence != "high"
-            }
-            if fields:
-                geometry_review_fields[str(draft.group_index)] = fields
         _write_json(
             analysis_dir / "analysis_summary.json",
-            {
-                "accepted_groups": [d.group_index for d in drafts if d.status == "accepted"],
-                "excluded_groups": [d.group_index for d in drafts if d.status == "excluded"],
-                "blocked_groups": [
-                    d.group_index
-                    for d in drafts
-                    if d.status not in NON_BLOCKING_GEOMETRY_STATUSES
-                ],
-                "group_count": len(drafts),
-                "group_topologies": [
-                    {
-                        "group_index": d.group_index,
-                        "group_type": d.topology.get("group_type"),
-                        "surface_range": d.surface_range,
-                        "status": d.status,
-                        "warnings": d.warnings,
-                        "blockers": d.blockers,
-                    }
-                    for d in drafts
-                ],
-                "geometry_review_fields": geometry_review_fields,
-            },
+            _analysis_summary_payload(drafts, geometry_cases, resolved=False),
         )
         analysis_manifest = analysis_source_manifest(destination)
-        request = _request_template(task_id, source, system.source_sha256)
-        request["geometry_review"]["fields"] = geometry_review_fields
-        if geometry_review_fields:
-            request["requirement_analysis"]["unresolved_questions"].append(
-                "请确认 geometry_review.fields 中列出的中等置信几何值与最终机械规格一致。"
-            )
+        request = _request_template(
+            task_id, source, system.source_sha256, renderer_path, policy
+        )
         _write_json(destination / REQUEST_FILE, request)
         initial_hash = _canonical_hash(request)
         _write_json(
             destination / "request_versions" / f"000_initial_{initial_hash[:12]}.json",
             request,
         )
+        hard_blocked = bool(geometry_cases["hard_blocked_groups"])
+        resolution_required = bool(geometry_cases["resolution_required"])
+        initial_status = (
+            "blocked_geometry"
+            if hard_blocked
+            else "awaiting_geometry_resolution"
+            if resolution_required
+            else "needs_input"
+        )
         state = {
             "schema_version": TASK_SCHEMA_VERSION,
             "task_id": task_id,
             "created_at": created_at,
             "updated_at": created_at,
-            "status": (
-                "blocked_geometry"
-                if any(d.status not in NON_BLOCKING_GEOMETRY_STATUSES for d in drafts)
-                else "needs_input"
-            ),
+            "status": initial_status,
             "status_note": (
-                "ZMX 几何存在阻断项，禁止进入加工要求和出图执行。"
-                if any(d.status not in NON_BLOCKING_GEOMETRY_STATUSES for d in drafts)
-                else "ZMX 分析完成，等待用户命名与完整加工要求。"
+                "ZMX 几何存在不可由候选选择解除的阻断项。"
+                if hard_blocked
+                else "ZMX 候选已冻结，等待 Agent 提交候选 ID 选择。"
+                if resolution_required
+                else "ZMX 分析完成，等待用户命名与特殊加工要求。"
             ),
             "agent_interface_version": AGENT_INTERFACE_VERSION,
             "agent_protocol_file": PROTOCOL_FILE,
@@ -494,6 +582,16 @@ def create_agent_task(
             "agent_spec_sha256": agent_spec_hash,
             "agent_runtime_identity": locked_runtime_identity,
             "source_analysis_manifest_sha256": analysis_manifest,
+            "geometry_cases_sha256": _canonical_hash(geometry_cases),
+            "geometry_resolution_sha256": None,
+            "deployment_policy_file": DEPLOYMENT_POLICY_FILE,
+            "deployment_policy_sha256": policy["policy_sha256"],
+            "deployment_policy_id": policy["policy_id"],
+            "manufacturing_defaults_sha256": policy[
+                "manufacturing_defaults_sha256"
+            ],
+            "visual_review_mode": policy["visual_review"]["mode"],
+            "zosapi_config": zosapi_config,
             "source_file": str(source),
             "source_sha256": system.source_sha256,
             "renderer_root": str(renderer_path),
@@ -503,21 +601,16 @@ def create_agent_task(
             "result_dir": None,
             "unresolved_questions": request["requirement_analysis"]["unresolved_questions"],
             "next_action": (
-                "读取 source_analysis/drawing_drafts.json 中的 blockers。"
-                if any(d.status not in NON_BLOCKING_GEOMETRY_STATUSES for d in drafts)
-                else "Agent 与用户确认命名和完整加工要求后填写 agent_request.json，再运行 validate。"
+                "读取 source_analysis/geometry_cases.json 中的 hard_blockers。"
+                if hard_blocked
+                else "读取 geometry_cases.json，仅提交候选 ID 到 resolve-geometry。"
+                if resolution_required
+                else "Agent 整理命名和用户明确提出的加工覆盖后提交请求。"
             ),
             "history": [
                 {
                     "at": created_at,
-                    "status": (
-                        "blocked_geometry"
-                        if any(
-                            d.status not in NON_BLOCKING_GEOMETRY_STATUSES
-                            for d in drafts
-                        )
-                        else "needs_input"
-                    ),
+                    "status": initial_status,
                     "note": "Agent task created and ZMX analyzed.",
                 }
             ],
@@ -529,6 +622,144 @@ def create_agent_task(
         if destination.exists():
             shutil.rmtree(destination, ignore_errors=True)
         raise
+
+
+def resolve_agent_geometry(
+    task_dir: str | os.PathLike[str],
+    decision_file: str | os.PathLike[str],
+    *,
+    _lock: bool = True,
+) -> dict[str, Any]:
+    task = Path(task_dir).resolve()
+    if _lock:
+        with TaskDirectoryLock(task):
+            return resolve_agent_geometry(task, decision_file, _lock=False)
+    state = _load_state(task)
+    decision = _read_json(Path(decision_file).resolve())
+    decision_hash = _canonical_hash(decision)
+    resolution_path = task / GEOMETRY_RESOLUTION_FILE
+    if resolution_path.is_file():
+        existing = _read_json(resolution_path)
+        if _canonical_hash(existing) == decision_hash:
+            return state
+        raise AgentTaskError("任务已存在不同的 geometry_resolution.json，拒绝覆盖")
+    if state.get("status") not in {
+        "awaiting_geometry_resolution",
+        "geometry_resolution_failed",
+    }:
+        raise AgentTaskError(
+            f"当前状态 {state.get('status')} 不允许 resolve-geometry"
+        )
+
+    analysis_dir = task / ANALYSIS_DIR
+    system = system_from_payload(_read_json(analysis_dir / "extracted_system.json"))
+    drafts = map_to_drafts(system)
+    stored_cases = _read_json(analysis_dir / GEOMETRY_CASES_FILE)
+    current_cases = build_geometry_cases(system, drafts, task_id=state["task_id"])
+    if current_cases != stored_cases:
+        raise AgentTaskError("geometry_cases.json 与已提取 ZOS-API 数据不一致")
+    if _canonical_hash(stored_cases) != state.get("geometry_cases_sha256"):
+        raise AgentTaskError("geometry_cases.json 哈希与任务状态不一致")
+    if not stored_cases.get("resolution_required"):
+        raise AgentTaskError("当前任务没有需要 Agent 选择的几何候选")
+    try:
+        resolved = apply_geometry_decision(drafts, stored_cases, decision)
+    except GeometryResolutionError as exc:
+        _write_json(
+            task / "geometry_resolution_error.json",
+            {
+                "schema_version": "1.0",
+                "failed_at": _now(),
+                "decision_sha256": decision_hash,
+                "error": str(exc),
+            },
+        )
+        _update_state(
+            task,
+            status="geometry_resolution_failed",
+            status_note=str(exc),
+            next_action=(
+                "重新读取 geometry_cases.json，仅修正候选 ID 选择后再次运行 "
+                "resolve-geometry。"
+            ),
+        )
+        raise AgentTaskError(str(exc)) from exc
+
+    _write_json(resolution_path, decision)
+    draft_payload = [draft.to_dict() for draft in resolved]
+    _write_json(analysis_dir / "drawing_drafts.json", draft_payload)
+    policy = load_deployment_policy(task / DEPLOYMENT_POLICY_FILE)
+    defaults = get_agent_default_settings()
+    defaults.update(policy["manufacturing_defaults"])
+    work_order = build_ai_work_order(draft_payload, defaults)
+    work_order["source"] = {
+        "zmx_path": state["source_file"],
+        "sha256": state["source_sha256"],
+    }
+    work_order["renderer_source_manifest_sha256"] = state[
+        "renderer_source_manifest_sha256"
+    ]
+    work_order["agent_runtime_identity"] = state["agent_runtime_identity"]
+    work_order["agent_spec_sha256"] = state["agent_spec_sha256"]
+    work_order["deployment_policy"] = {
+        "policy_id": policy["policy_id"],
+        "policy_sha256": policy["policy_sha256"],
+        "manufacturing_defaults_sha256": policy[
+            "manufacturing_defaults_sha256"
+        ],
+    }
+    _write_json(analysis_dir / "agent_work_order.json", work_order)
+    _write_json(
+        analysis_dir / "analysis_summary.json",
+        _analysis_summary_payload(resolved, stored_cases, resolved=True),
+    )
+    analysis_manifest = analysis_source_manifest(task)
+    request = _read_json(task / REQUEST_FILE)
+    confirmations = _geometry_confirmation_requirements(resolved)
+    existing_questions = [
+        str(item).strip()
+        for item in request.get("requirement_analysis", {}).get(
+            "unresolved_questions", []
+        )
+        if str(item).strip()
+    ]
+    confirmation_questions = [
+        str(item["prompt"]).strip()
+        for item in confirmations
+        if str(item.get("prompt", "")).strip()
+    ]
+    unresolved_questions = list(
+        dict.fromkeys(existing_questions + confirmation_questions)
+    )
+    request["requirement_analysis"]["unresolved_questions"] = unresolved_questions
+    request_hash = _canonical_hash(request)
+    _write_json(task / REQUEST_FILE, request)
+    _write_json(
+        task
+        / "request_versions"
+        / f"000_after_geometry_{request_hash[:12]}.json",
+        request,
+    )
+    next_status = "needs_clarification" if confirmations else "needs_input"
+    return _update_state(
+        task,
+        status=next_status,
+        status_note=(
+            "几何候选选择已冻结，但低置信字段必须取得用户确认。"
+            if confirmations
+            else "几何候选选择已通过确定性校验并冻结。"
+        ),
+        geometry_resolution_sha256=decision_hash,
+        source_analysis_manifest_sha256=analysis_manifest,
+        required_geometry_confirmations=confirmations,
+        unresolved_questions=unresolved_questions,
+        next_action=(
+            "通过 DWS 逐项取得 required_geometry_confirmations 的用户确认，"
+            "再连同命名和加工要求提交请求。"
+            if confirmations
+            else "整理命名和用户明确提出的加工覆盖，随后 submit 并 validate。"
+        ),
+    )
 
 
 def submit_agent_request(
@@ -543,7 +774,8 @@ def submit_agent_request(
             return submit_agent_request(task, request_file, _lock=False)
     state = _load_state(task)
     if state.get("status") in {
-        "running", "awaiting_human_review", "completed", "human_review_failed",
+        "awaiting_geometry_resolution", "geometry_resolution_failed", "running",
+        "awaiting_visual_review", "completed", "visual_review_failed",
         "validation_failed", "execution_failed", "release_blocked",
     }:
         raise AgentTaskError(
@@ -709,11 +941,14 @@ def _validate_manufacturing_field_evidence(
 
 def _valid_requirement_targets(
     request: dict[str, Any],
-    expected_geometry_review: dict[str, dict[str, Any]],
+    geometry_confirmations: list[dict[str, Any]] | None = None,
 ) -> set[str]:
-    targets = {"naming", "manufacturing.defaults"}
-    for group, fields in expected_geometry_review.items():
-        targets.update(f"geometry_review.{group}.{field}" for field in fields)
+    targets = {"naming", "manufacturing.deployment_policy"}
+    targets.update(
+        f"geometry_confirmation.{item['confirmation_id']}"
+        for item in (geometry_confirmations or [])
+        if str(item.get("confirmation_id", "")).strip()
+    )
     manufacturing = request.get("manufacturing_requirements", {})
     if not isinstance(manufacturing, dict):
         return targets
@@ -816,13 +1051,33 @@ def validate_agent_request(
         errors.append("任务缺少创建时锁定的 Agent spec 快照")
     elif _sha256(spec_path) != state.get("agent_spec_sha256"):
         errors.append("任务内 Agent spec 已被修改，禁止执行")
+    policy = None
+    policy_path = task / str(
+        state.get("deployment_policy_file", DEPLOYMENT_POLICY_FILE)
+    )
+    if not policy_path.is_file():
+        errors.append("任务缺少创建时锁定的 deployment_policy.json 快照")
+    elif _sha256(policy_path) != state.get("deployment_policy_sha256"):
+        errors.append("任务内 deployment_policy.json 已被修改，禁止执行")
+    else:
+        try:
+            policy = load_deployment_policy(policy_path)
+        except DeploymentPolicyError as exc:
+            errors.append(str(exc))
+        else:
+            if policy.get("policy_id") != state.get("deployment_policy_id"):
+                errors.append("部署策略 policy_id 与任务创建时不一致")
+            if policy.get("manufacturing_defaults_sha256") != state.get(
+                "manufacturing_defaults_sha256"
+            ):
+                errors.append("部署加工默认值哈希与任务创建时不一致")
     try:
         current_runtime_identity = runtime_identity()
     except Exception as exc:
         errors.append(str(exc))
     else:
         if current_runtime_identity != state.get("agent_runtime_identity"):
-            errors.append("Lens Drawing V4 运行时身份与任务创建时不一致，禁止执行")
+            errors.append("Lens Drawing 运行时身份与任务创建时不一致，禁止执行")
     try:
         current_analysis_manifest = analysis_source_manifest(task)
     except AgentTaskError as exc:
@@ -883,8 +1138,14 @@ def validate_agent_request(
     if assumptions not in ([], None):
         errors.append("执行请求不能包含未经用户确认的 assumptions")
 
+    drafts = _draft_objects_from_analysis(task)
+    required_geometry_confirmations = _geometry_confirmation_requirements(drafts)
+    if state.get("required_geometry_confirmations", []) != required_geometry_confirmations:
+        errors.append("task_state.required_geometry_confirmations 与权威几何分析不一致")
+
     decisions = analysis.get("decisions", [])
     categories: set[str] = set()
+    submitted_geometry_confirmations: set[str] = set()
     if not isinstance(decisions, list):
         errors.append("requirement_analysis.decisions 必须是数组")
     else:
@@ -893,12 +1154,31 @@ def validate_agent_request(
                 errors.append(f"requirement_analysis.decisions[{index}] 必须是对象")
                 continue
             category = str(decision.get("category", "")).strip()
-            if category not in {"naming", "manufacturing_complete", "geometry_review"}:
+            if category not in {
+                "naming",
+                "manufacturing_complete",
+                "geometry_confirmation",
+            }:
                 errors.append(
-                    f"决策 {index} category 必须是 naming、manufacturing_complete 或 geometry_review"
+                    f"决策 {index} category 必须是 naming、manufacturing_complete "
+                    "或 geometry_confirmation"
                 )
             else:
                 categories.add(category)
+            if category == "geometry_confirmation":
+                confirmation_id = str(
+                    decision.get("confirmation_id", "")
+                ).strip()
+                if not confirmation_id:
+                    errors.append(
+                        f"决策 {index}.confirmation_id 不能为空"
+                    )
+                elif confirmation_id in submitted_geometry_confirmations:
+                    errors.append(
+                        f"几何确认重复: {confirmation_id}"
+                    )
+                else:
+                    submitted_geometry_confirmations.add(confirmation_id)
             if not str(decision.get("statement", "")).strip():
                 errors.append(f"决策 {index} statement 不能为空")
             _validate_evidence_refs(
@@ -910,6 +1190,28 @@ def validate_agent_request(
     for required in ("naming", "manufacturing_complete"):
         if required not in categories:
             errors.append(f"缺少 {required} 决策记录")
+    required_confirmation_ids = {
+        str(item.get("confirmation_id", "")).strip()
+        for item in required_geometry_confirmations
+        if isinstance(item, dict)
+        and str(item.get("confirmation_id", "")).strip()
+    }
+    missing_confirmations = sorted(
+        required_confirmation_ids - submitted_geometry_confirmations
+    )
+    unknown_confirmations = sorted(
+        submitted_geometry_confirmations - required_confirmation_ids
+    )
+    if missing_confirmations:
+        errors.append(
+            "以下低置信几何尚未取得用户确认: "
+            + ", ".join(missing_confirmations)
+        )
+    if unknown_confirmations:
+        errors.append(
+            "geometry_confirmation 引用了未知确认项: "
+            + ", ".join(unknown_confirmations)
+        )
 
     try:
         naming = validate_naming_policy_shape(request.get("naming"))
@@ -925,15 +1227,39 @@ def validate_agent_request(
         errors.append("manufacturing_requirements 必须是对象")
         patch = None
     else:
-        evidence_ids = _validate_evidence_refs(
-            manufacturing.get("evidence_ids"),
-            "manufacturing_requirements.evidence_ids",
-            evidence,
-            errors,
-        )
+        evidence_ids = manufacturing.get("evidence_ids", [])
+        if evidence_ids not in ([], None):
+            evidence_ids = _validate_evidence_refs(
+                evidence_ids,
+                "manufacturing_requirements.evidence_ids",
+                evidence,
+                errors,
+            )
+        else:
+            evidence_ids = []
+        if manufacturing.get("approval_source") != "deployment_policy":
+            errors.append(
+                "manufacturing_requirements.approval_source 必须是 deployment_policy"
+            )
+        if policy is not None:
+            expected_policy_fields = {
+                "policy_id": policy["policy_id"],
+                "policy_sha256": policy["policy_sha256"],
+                "approved_by": policy["approved_by"],
+                "approved_at": policy["approved_at"],
+            }
+            for key, expected in expected_policy_fields.items():
+                if manufacturing.get(key) != expected:
+                    errors.append(
+                        f"manufacturing_requirements.{key} 与任务部署策略不一致"
+                    )
         payload = dict(manufacturing)
         payload.pop("field_evidence", None)
-        payload["approval_evidence"] = {"evidence_ids": evidence_ids}
+        payload["approval_evidence"] = {
+            "deployment_policy_id": state.get("deployment_policy_id"),
+            "deployment_policy_sha256": state.get("deployment_policy_sha256"),
+            "user_override_evidence_ids": evidence_ids,
+        }
         _validate_manufacturing_field_evidence(manufacturing, evidence, errors)
         try:
             patch = approved_patch_from_payload(payload)
@@ -941,52 +1267,10 @@ def validate_agent_request(
             errors.append(str(exc))
             patch = None
 
-    drafts = _draft_objects_from_analysis(task)
-    expected_geometry_review: dict[str, dict[str, Any]] = {}
-    for draft in drafts:
-        if draft.status != "accepted":
-            continue
-        fields = {
-            item.field: item.converted_value
-            for item in draft.provenance
-            if item.field.startswith(
-                ("Glass", "T", "R", "MD", "AD", "Lens")
-            )
-            and item.confidence != "high"
-        }
-        if fields:
-            expected_geometry_review[str(draft.group_index)] = fields
-    geometry_review = request.get("geometry_review", {})
-    if expected_geometry_review:
-        if "geometry_review" not in categories:
-            errors.append("存在中等置信几何字段，缺少 geometry_review 决策记录")
-        if not isinstance(geometry_review, dict):
-            errors.append("geometry_review 必须是对象")
-        else:
-            if geometry_review.get("approval_status") != "approved":
-                errors.append("geometry_review.approval_status 必须是 approved")
-            for key in ("approved_by", "approved_at", "reason"):
-                if not str(geometry_review.get(key, "")).strip():
-                    errors.append(f"geometry_review.{key} 不能为空")
-            _validate_evidence_refs(
-                geometry_review.get("evidence_ids"),
-                "geometry_review.evidence_ids",
-                evidence,
-                errors,
-            )
-            if geometry_review.get("fields") != expected_geometry_review:
-                errors.append(
-                    "geometry_review.fields 必须与 source_analysis 中待确认字段和值完全一致，禁止修改几何"
-                )
-    elif geometry_review not in ({}, None):
-        if not isinstance(geometry_review, dict):
-            errors.append("geometry_review 必须是对象")
-        elif geometry_review.get("fields") not in ({}, None):
-            errors.append("当前任务没有需要确认的几何字段")
     _validate_evidence_disposition(
         analysis,
         evidence,
-        _valid_requirement_targets(request, expected_geometry_review),
+        _valid_requirement_targets(request, required_geometry_confirmations),
         errors,
     )
     if any(
@@ -1016,7 +1300,15 @@ def validate_agent_request(
                         )
                         for field, value in resolved.get(str(draft.group_index), {}).items():
                             draft.row[field] = value
-                    preflight_draft(draft, renderer_root, patch)
+                    base_settings = get_agent_default_settings()
+                    if policy is not None:
+                        base_settings.update(policy["manufacturing_defaults"])
+                    preflight_draft(
+                        draft,
+                        renderer_root,
+                        patch,
+                        base_settings=base_settings,
+                    )
         except ProcessPatchError as exc:
             errors.append(str(exc))
         except Exception as exc:
@@ -1027,8 +1319,16 @@ def validate_agent_request(
     else:
         if execution.get("automated_pdf_validation") is not True:
             errors.append("必须启用 automated_pdf_validation")
-        if execution.get("human_visual_review_required") is not True:
-            errors.append("必须启用 human_visual_review_required")
+        visual_review = execution.get("visual_review")
+        if not isinstance(visual_review, dict):
+            errors.append("execution.visual_review 必须是对象")
+        else:
+            if visual_review.get("required") is not True:
+                errors.append("execution.visual_review.required 必须是 true")
+            if visual_review.get("mode") != state.get("visual_review_mode"):
+                errors.append(
+                    "execution.visual_review.mode 与任务部署策略不一致"
+                )
         renderer_root = Path(
             str(execution.get("renderer_root", state.get("renderer_root", "")))
         ).resolve()
@@ -1056,10 +1356,10 @@ def validate_agent_request(
     current_status = state.get("status")
     terminal_statuses = {
         "running",
-        "awaiting_human_review",
+        "awaiting_visual_review",
         "completed",
         "release_blocked",
-        "human_review_failed",
+        "visual_review_failed",
         "validation_failed",
         "execution_failed",
     }
@@ -1095,7 +1395,7 @@ def run_agent_task(
     request = _read_json(task / REQUEST_FILE)
     current_hash = _canonical_hash(request)
     result_dir = task / RESULT_DIR
-    if state.get("status") in {"awaiting_human_review", "completed", "release_blocked"}:
+    if state.get("status") in {"awaiting_visual_review", "completed", "release_blocked"}:
         if state.get("request_hash") == current_hash and result_dir.is_dir():
             return _read_json(result_dir / "audit.json")
         raise AgentTaskError("任务已有不同请求或结果，拒绝覆盖；请创建新任务目录")
@@ -1112,9 +1412,17 @@ def run_agent_task(
     manufacturing = dict(request["manufacturing_requirements"])
     manufacturing.pop("field_evidence", None)
     manufacturing["approval_evidence"] = {
-        "evidence_ids": manufacturing.pop("evidence_ids")
+        "deployment_policy_id": state.get("deployment_policy_id"),
+        "deployment_policy_sha256": state.get("deployment_policy_sha256"),
+        "user_override_evidence_ids": manufacturing.pop("evidence_ids", []),
     }
     patch = approved_patch_from_payload(manufacturing)
+    policy = load_deployment_policy(task / DEPLOYMENT_POLICY_FILE)
+    geometry_cases = _read_json(task / ANALYSIS_DIR / GEOMETRY_CASES_FILE)
+    resolution_path = task / GEOMETRY_RESOLUTION_FILE
+    geometry_decision = (
+        _read_json(resolution_path) if resolution_path.is_file() else None
+    )
     _update_state(
         task,
         status="running",
@@ -1141,8 +1449,17 @@ def run_agent_task(
                 "agent_runtime_identity": state.get("agent_runtime_identity"),
                 "agent_spec_sha256": state.get("agent_spec_sha256"),
                 "source_analysis_manifest_sha256": state.get("source_analysis_manifest_sha256"),
+                "deployment_policy_id": state.get("deployment_policy_id"),
+                "deployment_policy_sha256": state.get("deployment_policy_sha256"),
+                "geometry_cases_sha256": state.get("geometry_cases_sha256"),
+                "geometry_resolution_sha256": state.get(
+                    "geometry_resolution_sha256"
+                ),
             },
-            geometry_acknowledgements=request.get("geometry_review"),
+            deployment_policy=policy,
+            geometry_cases=geometry_cases,
+            geometry_decision=geometry_decision,
+            zosapi_config=state.get("zosapi_config", {}),
         )
         if not audit.get("drawings_generated"):
             _update_state(
@@ -1160,16 +1477,22 @@ def run_agent_task(
             result_dir,
             task / RENDER_DIR,
             "pending",
-            "等待人工操作员逐页目视检查。",
+            "等待部署策略指定的视觉检查。",
         )
         if not report["automated_checks_passed"]:
             status = "validation_failed"
             note = "PDF 自动字段或渲染检查失败。"
             action = "读取 result/pdf_validation_report.json 并修正后创建新任务。"
         else:
-            status = "awaiting_human_review"
-            note = "自动检查通过，等待人工操作员逐页目视验收。"
-            action = "由授权操作员检查 validation_render/contact_sheet_*.png 后运行 review。"
+            status = "awaiting_visual_review"
+            note = (
+                "自动检查通过，等待 "
+                f"{state.get('visual_review_mode')} 提交结构化视觉报告。"
+            )
+            action = (
+                "检查 validation_render/contact_sheet_*.png，并以配置的 kind 和 "
+                "--report 运行 review。"
+            )
         _update_state(
             task,
             status=status,
@@ -1190,61 +1513,155 @@ def run_agent_task(
         raise
 
 
-def record_human_visual_review(
+def _validated_external_review_report(
+    report_file: str | os.PathLike[str],
+    *,
+    kind: str,
+    status: str,
+    expected_contact_sheets: list[str],
+    expected_pdfs: list[str],
+) -> dict[str, Any]:
+    payload = _read_json(Path(report_file).resolve())
+    if not isinstance(payload, dict) or payload.get("schema_version") != "1.0":
+        raise AgentTaskError("视觉报告必须是 schema_version=1.0 的 JSON 对象")
+    if payload.get("status") != status:
+        raise AgentTaskError("视觉报告 status 与 review --status 不一致")
+    if payload.get("review_kind") != kind:
+        raise AgentTaskError("视觉报告 review_kind 与 review --kind 不一致")
+    for key in ("issues", "uncertainties"):
+        if not isinstance(payload.get(key), list):
+            raise AgentTaskError(f"视觉报告 {key} 必须是数组")
+    if status == "passed" and (payload["issues"] or payload["uncertainties"]):
+        raise AgentTaskError("passed 视觉报告不能包含未解决问题或不确定项")
+    if kind == "vision_agent":
+        for key in ("model", "prompt_version"):
+            if not str(payload.get(key, "")).strip():
+                raise AgentTaskError(f"机器视觉报告 {key} 不能为空")
+        duration = payload.get("duration_ms")
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            raise AgentTaskError("机器视觉报告 duration_ms 必须是非负数值")
+        if duration < 0:
+            raise AgentTaskError("机器视觉报告 duration_ms 不能为负数")
+
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise AgentTaskError("视觉报告 artifacts 必须是对象")
+
+    def validated_artifacts(label: str, expected_paths: list[str]) -> list[dict[str, str]]:
+        items = artifacts.get(label)
+        if not isinstance(items, list):
+            raise AgentTaskError(f"视觉报告 artifacts.{label} 必须是数组")
+        expected = {str(Path(path).resolve()) for path in expected_paths}
+        submitted: dict[str, str] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                raise AgentTaskError(f"视觉报告 artifacts.{label} 项必须是对象")
+            path = str(Path(str(item.get("path", ""))).resolve())
+            declared_hash = str(item.get("sha256", "")).lower()
+            if path in submitted:
+                raise AgentTaskError(f"视觉报告 artifacts.{label} 路径重复: {path}")
+            if not re.fullmatch(r"[0-9a-f]{64}", declared_hash):
+                raise AgentTaskError(f"视觉报告 artifacts.{label} 缺少有效 sha256")
+            current_hash = _sha256(Path(path)) if Path(path).is_file() else None
+            if current_hash != declared_hash:
+                raise AgentTaskError(f"视觉报告引用的产物哈希不匹配: {path}")
+            submitted[path] = declared_hash
+        if set(submitted) != expected:
+            raise AgentTaskError(
+                f"视觉报告 artifacts.{label} 必须完整引用当前全部产物"
+            )
+        return [
+            {"path": path, "sha256": submitted[path]}
+            for path in sorted(submitted)
+        ]
+
+    payload["artifacts"] = {
+        "contact_sheets": validated_artifacts(
+            "contact_sheets", expected_contact_sheets
+        ),
+        "pdfs": validated_artifacts("pdfs", expected_pdfs),
+    }
+    return payload
+
+
+def record_visual_review(
     task_dir: str | os.PathLike[str],
     *,
     status: str,
+    kind: str,
     reviewer: str,
+    report_file: str | os.PathLike[str],
     note: str,
     _lock: bool = True,
 ) -> dict[str, Any]:
     task = Path(task_dir).resolve()
     if _lock:
         with TaskDirectoryLock(task):
-            return record_human_visual_review(
+            return record_visual_review(
                 task,
                 status=status,
+                kind=kind,
                 reviewer=reviewer,
+                report_file=report_file,
                 note=note,
                 _lock=False,
             )
     state = _load_state(task)
-    if state.get("status") not in {"awaiting_human_review", "human_review_failed"}:
+    if state.get("status") not in {"awaiting_visual_review", "visual_review_failed"}:
         raise AgentTaskError(
-            f"当前状态 {state.get('status')} 不允许提交人工视觉验收"
+            f"当前状态 {state.get('status')} 不允许提交视觉验收"
         )
     if status not in {"passed", "failed"}:
-        raise AgentTaskError("人工视觉验收状态必须是 passed 或 failed")
+        raise AgentTaskError("视觉验收状态必须是 passed 或 failed")
+    if kind not in {"vision_agent", "human_operator"}:
+        raise AgentTaskError("review kind 必须是 vision_agent 或 human_operator")
     reviewer = reviewer.strip()
     note = note.strip()
     if not reviewer or not note:
-        raise AgentTaskError("人工视觉验收必须填写 reviewer 和 note")
+        raise AgentTaskError("视觉验收必须填写 reviewer 和 note")
 
     result_dir = Path(state["result_dir"])
     from .output_validation import validate
 
-    report = validate(result_dir, task / RENDER_DIR, status, note)
     audit = _read_json(result_dir / "audit.json")
     request = _read_json(task / REQUEST_FILE)
+    configured_kind = request.get("execution", {}).get("visual_review", {}).get(
+        "mode"
+    )
+    if kind != configured_kind:
+        raise AgentTaskError(
+            f"review kind {kind} 与任务配置 {configured_kind} 不一致"
+        )
+    preliminary = _read_json(result_dir / "pdf_validation_report.json")
+    if preliminary.get("automated_checks_passed") is not True:
+        raise AgentTaskError("PDF 自动校验未通过，禁止提交视觉验收")
+    contact_sheets = preliminary.get("visual_review", {}).get(
+        "contact_sheets", []
+    )
+    external_report = _validated_external_review_report(
+        report_file,
+        kind=kind,
+        status=status,
+        expected_contact_sheets=contact_sheets,
+        expected_pdfs=audit.get("rendered_pdfs", []),
+    )
+    report = validate(result_dir, task / RENDER_DIR, status, note)
     execution_mode = request.get("execution", {}).get("mode", "production")
     review = {
         "schema_version": "1.0",
-        "review_kind": "human_operator",
+        "review_kind": kind,
         "reviewed_at": _now(),
         "status": status,
         "reviewer": reviewer,
         "note": note,
-        "contact_sheets": [
-            {"path": path, "sha256": _sha256(Path(path))}
-            for path in report["human_visual_review"]["contact_sheets"]
-        ],
-        "pdfs": [
-            {"path": path, "sha256": _sha256(Path(path))}
-            for path in audit.get("rendered_pdfs", [])
-        ],
+        "external_report_file": str(Path(report_file).resolve()),
+        "external_report_sha256": _sha256(Path(report_file).resolve()),
+        "report": external_report,
+        "contact_sheets": external_report["artifacts"]["contact_sheets"],
+        "pdfs": external_report["artifacts"]["pdfs"],
         "request_hash": state.get("request_hash"),
     }
-    _write_json(task / HUMAN_REVIEW_FILE, review)
+    _write_json(task / VISUAL_REVIEW_FILE, review)
     release_gate_passed = (
         bool(audit.get("production_release_ready"))
         if execution_mode == "production"
@@ -1262,7 +1679,7 @@ def record_human_visual_review(
         "source_sha256": state["source_sha256"],
         "audit": str(result_dir / "audit.json"),
         "pdf_validation_report": str(result_dir / "pdf_validation_report.json"),
-        "human_visual_review": str(task / HUMAN_REVIEW_FILE),
+        "visual_review": str(task / VISUAL_REVIEW_FILE),
         "manufacturing_requirements": str(
             result_dir / "manufacturing_requirements_delivery.json"
         ),
@@ -1282,15 +1699,15 @@ def record_human_visual_review(
         status=(
             "completed"
             if completed
-            else ("release_blocked" if status == "passed" else "human_review_failed")
+            else ("release_blocked" if status == "passed" else "visual_review_failed")
         ),
         status_note=(
-            "自动校验与人工视觉验收均通过。"
+            "自动校验与配置的视觉验收均通过。"
             if completed
             else (
-                "人工视觉验收通过，但生产放行门槛未满足。"
+                "视觉验收通过，但生产放行门槛未满足。"
                 if status == "passed"
-                else "人工视觉验收未通过。"
+                else "视觉验收未通过。"
             )
         ),
         next_action=(
@@ -1302,19 +1719,21 @@ def record_human_visual_review(
     return delivery
 
 
-def record_visual_review(
+def record_human_visual_review(
     task_dir: str | os.PathLike[str],
     *,
     status: str,
     reviewer: str,
+    report_file: str | os.PathLike[str],
     note: str,
     _lock: bool = True,
 ) -> dict[str, Any]:
-    """Compatibility alias for callers using the original Python symbol."""
-    return record_human_visual_review(
+    return record_visual_review(
         task_dir,
         status=status,
+        kind="human_operator",
         reviewer=reviewer,
+        report_file=report_file,
         note=note,
         _lock=_lock,
     )

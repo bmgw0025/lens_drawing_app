@@ -45,6 +45,7 @@ def build_agent_spec() -> dict[str, Any]:
                 "capabilities",
                 "spec",
                 "create",
+                "resolve-geometry",
                 "submit",
                 "validate",
                 "run",
@@ -102,7 +103,17 @@ def build_agent_spec() -> dict[str, Any]:
                 "exclude a single H-K9L element with two plane surfaces from drawing, "
                 "retain deterministic evidence, and disclose the exclusion at delivery"
             ),
-            "medium_confidence_requires_exact_acknowledgement": True,
+            "candidate_protocol": (
+                "create freezes geometry_cases.json; the Agent may select candidate IDs only, "
+                "and resolve-geometry revalidates provenance and MD >= selected AD"
+            ),
+            "virtual_interfaces_require_agent_selection": True,
+            "low_confidence_confirmation_rule": (
+                "resolve-geometry emits immutable required_geometry_confirmations for "
+                "selected AD/MD candidates whose original provenance is not high confidence "
+                "or when multiple topology candidates remain; validate requires one "
+                "evidence-backed geometry_confirmation decision for every confirmation_id"
+            ),
         },
         "supported_geometry": {
             "mode": "Sequential",
@@ -137,15 +148,17 @@ def build_agent_spec() -> dict[str, Any]:
             "attachments_require_sha256": True,
             "every_evidence_item_requires_disposition": True,
             "every_override_requires_field_evidence": True,
+            "low_confidence_geometry_requires_user_evidence": True,
         },
         "process_field_catalog": {
             key: PROCESS_FIELD_SPECS[key] for key in sorted(PROCESS_FIELD_SPECS)
         },
         "process_defaults": process_defaults,
         "process_default_policy": {
-            "source": "immutable Agent baseline bundled with this app version",
+            "source": "approved task-local deployment_policy.json snapshot",
             "reads_persisted_gui_settings": False,
             "unspecified_requirements_use_baseline": True,
+            "per_task_default_approval_required": False,
         },
         "override_precedence": [
             "renderer_defaults",
@@ -155,19 +168,22 @@ def build_agent_spec() -> dict[str, Any]:
         ],
         "task_state": {
             "normal_flow": [
+                "awaiting_geometry_resolution",
+                "needs_clarification",
                 "needs_input",
                 "submitted",
                 "ready",
                 "running",
-                "awaiting_human_review",
+                "awaiting_visual_review",
                 "completed",
             ],
             "failure_or_block_states": [
                 "blocked_geometry",
+                "geometry_resolution_failed",
                 "needs_clarification",
                 "validation_failed",
                 "execution_failed",
-                "human_review_failed",
+                "visual_review_failed",
                 "release_blocked",
             ],
         },
@@ -177,27 +193,34 @@ def build_agent_spec() -> dict[str, Any]:
             "agent_request.schema.json",
             "lens_drawing_agent_spec.json",
             "AGENT_HANDOFF.md",
+            "deployment_policy.json",
             "source_analysis/",
+            "source_analysis/geometry_cases.json",
+            "geometry_resolution.json",
             "agent_request.json",
             "request_versions/",
             "request_validation.json",
             "result/",
             "result/manufacturing_requirements_delivery.json",
             "result/manufacturing_requirements_summary.md",
-            "human_visual_review.json",
+            "visual_review.json",
             "delivery_manifest.json",
         ],
         "agent_judgment_required": [
             "translate user language into evidence-backed naming and process fields",
-            "ask only unresolved naming, complete manufacturing and exact geometry review questions",
+            "select only topology, AD and MD candidate IDs exposed by Lens Drawing",
+            "ask only for missing naming, explicit conflicts or low-confidence geometry",
             "explain blocked or ambiguous geometry without overriding it",
             "disclose high-confidence warnings and excluded prism groups at delivery",
-            "prepare the task for an authorized human visual review without recording the decision",
+            "prepare artifacts for the configured visual reviewer without recording the decision",
         ],
-        "human_operator_judgment_required": [
-            "visually review every rendered PDF page",
-            "record passed or failed through the review command",
-        ],
+        "visual_review": {
+            "modes": ["vision_agent", "human_operator"],
+            "production_default": "vision_agent",
+            "report_required": True,
+            "artifact_hashes_revalidated": True,
+            "main_agent_may_record_review": False,
+        },
         "installed_dependencies": {
             "bundled": [
                 "Lens Drawing renderer",

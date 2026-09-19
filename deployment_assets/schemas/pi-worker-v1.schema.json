@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lensbot://schemas/pi-worker-1",
+  "title": "LensBot Pi worker JSONL protocol",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/hello_ok"
+    },
+    {
+      "$ref": "#/$defs/run_agent"
+    },
+    {
+      "$ref": "#/$defs/run_vision_review"
+    },
+    {
+      "$ref": "#/$defs/tool_call"
+    },
+    {
+      "$ref": "#/$defs/tool_result"
+    },
+    {
+      "$ref": "#/$defs/agent_result"
+    },
+    {
+      "$ref": "#/$defs/vision_review_result"
+    },
+    {
+      "$ref": "#/$defs/agent_error"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "worker_version",
+        "pi_version",
+        "node_version",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "hello"
+        },
+        "worker_version": {
+          "const": "1.0.0"
+        },
+        "pi_version": {
+          "const": "0.84.2"
+        },
+        "node_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "hello_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "host_version"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "hello_ok"
+        },
+        "host_version": {
+          "const": "1.0.0"
+        }
+      }
+    },
+    "run_agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "task_id",
+        "task_snapshot",
+        "conversation_history",
+        "user_evidence"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "run_agent"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_snapshot": {
+          "type": "object"
+        },
+        "conversation_history": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "user_evidence": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "review_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "page_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "run_vision_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "task_id",
+        "prompt_version",
+        "contact_sheets",
+        "pdfs",
+        "automated_validation"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "run_vision_review"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "prompt_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contact_sheets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/review_artifact"
+          }
+        },
+        "pdfs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/review_artifact"
+          }
+        },
+        "automated_validation": {
+          "type": "object"
+        }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "tool_call_id",
+        "task_id",
+        "tool",
+        "arguments"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "tool_call"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool": {
+          "enum": [
+            "lens_create",
+            "lens_resolve_geometry",
+            "lens_submit",
+            "lens_validate",
+            "lens_enqueue_run",
+            "lens_status",
+            "ask_customer",
+            "reject_task",
+            "emit_delivery_summary"
+          ]
+        },
+        "arguments": {
+          "type": "object"
+        }
+      }
+    },
+    "tool_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "tool_call_id",
+        "task_id",
+        "ok",
+        "result",
+        "error"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "tool_result"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "message"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "agent_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "task_id",
+        "outcome",
+        "summary"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "agent_result"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "outcome": {
+          "enum": [
+            "ready",
+            "waiting_customer",
+            "rejected",
+            "completed",
+            "no_action",
+            "failed"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "vision_review_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "task_id",
+        "report"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "vision_review_result"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "report": {
+          "$ref": "lensbot://schemas/visual-review-1"
+        }
+      }
+    },
+    "agent_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "task_id",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "v": {
+          "const": "pi-worker/1"
+        },
+        "type": {
+          "const": "agent_error"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "task_id": {
+          "$ref": "#/$defs/id"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

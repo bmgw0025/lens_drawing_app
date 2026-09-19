@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Build the Lens Drawing V4 GUI and installed Agent as one onedir package."""
+"""Build the Lens Drawing GUI and installed Agent as one onedir package."""
 import sys
 import os
 import shutil
@@ -13,7 +13,7 @@ WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 VENV_PYTHON = os.path.join(WORKSPACE, "venv", "Scripts", "python.exe")
 DIST_DIR = os.path.join(WORKSPACE, "dist")
 BUILD_DIR = os.path.join(WORKSPACE, "build")
-OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "LensDrawing_4.0")
+OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "LensDrawing_4.1")
 INSTALLER_SCRIPT = os.path.join(WORKSPACE, "LensDrawing_Installer.iss")
 VERSION_FILE = os.path.join(WORKSPACE, "version_info.txt")
 SYNC_AGENT_ASSETS = os.path.join(WORKSPACE, "sync_agent_assets.py")
@@ -299,6 +299,8 @@ hidden_imports = [
     "autodraw.agent_tasks",
     "autodraw.mapper",
     "autodraw.models",
+    "autodraw.geometry_resolution",
+    "autodraw.deployment_policy",
     "autodraw.naming",
     "autodraw.output_validation",
     "autodraw.pipeline",

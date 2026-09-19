@@ -4,6 +4,7 @@
       "capabilities",
       "spec",
       "create",
+      "resolve-geometry",
       "submit",
       "validate",
       "run",
@@ -27,28 +28,30 @@
         "result or error"
       ]
     },
-    "request_schema_version": "1.1",
+    "request_schema_version": "1.2",
     "source_entrypoint": "python agent_cli.py <command>",
-    "task_schema_version": "1.0",
-    "version": "4.0.0"
+    "task_schema_version": "1.1",
+    "version": "4.1.0"
   },
   "agent_judgment_required": [
     "translate user language into evidence-backed naming and process fields",
-    "ask only unresolved naming, complete manufacturing and exact geometry review questions",
+    "select only topology, AD and MD candidate IDs exposed by Lens Drawing",
+    "ask only for missing naming, explicit conflicts or low-confidence geometry",
     "explain blocked or ambiguous geometry without overriding it",
     "disclose high-confidence warnings and excluded prism groups at delivery",
-    "prepare the task for an authorized human visual review without recording the decision"
+    "prepare artifacts for the configured visual reviewer without recording the decision"
   ],
   "application": {
     "display_name": "Lens Drawing",
     "name": "LensDrawing",
-    "version": "4.0",
-    "version_full": "4.0.0"
+    "version": "4.1",
+    "version_full": "4.1.0"
   },
   "evidence": {
     "attachments_require_sha256": true,
     "every_evidence_item_requires_disposition": true,
     "every_override_requires_field_evidence": true,
+    "low_confidence_geometry_requires_user_evidence": true,
     "production_kinds": [
       "user_message",
       "attachment"
@@ -60,6 +63,7 @@
   "geometry_policy": {
     "agent_mutable": false,
     "authoritative_input": ".zmx",
+    "candidate_protocol": "create freezes geometry_cases.json; the Agent may select candidate IDs only, and resolve-geometry revalidates provenance and MD >= selected AD",
     "fields": [
       "Glass",
       "T",
@@ -69,19 +73,16 @@
       "AD_right"
     ],
     "geometry_contract": "lenses[] is authoritative for per-lens Glass/T/R/MD/AD_left/AD_right; row is a legacy compatibility view and may contain null at a virtual interface whose two AD values differ",
-    "medium_confidence_requires_exact_acknowledgement": true,
+    "low_confidence_confirmation_rule": "resolve-geometry emits immutable required_geometry_confirmations for selected AD/MD candidates whose original provenance is not high confidence or when multiple topology candidates remain; validate requires one evidence-backed geometry_confirmation decision for every confirmation_id",
     "prism_exclusion_rule": "exclude a single H-K9L element with two plane surfaces from drawing, retain deterministic evidence, and disclose the exclusion at delivery",
     "screenshot_policy": "screenshots may support identification or user evidence but cannot enter the accurate automatic geometry path; require ZMX or a separately confirmed manual route",
     "semi_diameter_rule": "AD and MD are full diameters; never map AD to MD",
     "source": "read-only native ZOS-API extraction from one ZMX",
     "topology_and_dimension_review_are_separate": true,
     "virtual_interface_effect": "collapse the duplicated LDE surfaces into one logical R boundary, preserve side-specific AD and MEMA evidence for the adjacent lenses, and do not split the cemented lens group",
-    "virtual_interface_rule": "zero-thickness non-glass gaps are cemented only when duplicated surface type/radius match and no tilt/decenter exists"
+    "virtual_interface_rule": "zero-thickness non-glass gaps are cemented only when duplicated surface type/radius match and no tilt/decenter exists",
+    "virtual_interfaces_require_agent_selection": true
   },
-  "human_operator_judgment_required": [
-    "visually review every rendered PDF page",
-    "record passed or failed through the review command"
-  ],
   "installed_dependencies": {
     "bundled": [
       "Lens Drawing renderer",
@@ -130,19 +131,23 @@
     "agent_request.schema.json",
     "lens_drawing_agent_spec.json",
     "AGENT_HANDOFF.md",
+    "deployment_policy.json",
     "source_analysis/",
+    "source_analysis/geometry_cases.json",
+    "geometry_resolution.json",
     "agent_request.json",
     "request_versions/",
     "request_validation.json",
     "result/",
     "result/manufacturing_requirements_delivery.json",
     "result/manufacturing_requirements_summary.md",
-    "human_visual_review.json",
+    "visual_review.json",
     "delivery_manifest.json"
   ],
   "process_default_policy": {
+    "per_task_default_approval_required": false,
     "reads_persisted_gui_settings": false,
-    "source": "immutable Agent baseline bundled with this app version",
+    "source": "approved task-local deployment_policy.json snapshot",
     "unspecified_requirements_use_baseline": true
   },
   "process_defaults": {
@@ -581,19 +586,32 @@
   "task_state": {
     "failure_or_block_states": [
       "blocked_geometry",
+      "geometry_resolution_failed",
       "needs_clarification",
       "validation_failed",
       "execution_failed",
-      "human_review_failed",
+      "visual_review_failed",
       "release_blocked"
     ],
     "normal_flow": [
+      "awaiting_geometry_resolution",
+      "needs_clarification",
       "needs_input",
       "submitted",
       "ready",
       "running",
-      "awaiting_human_review",
+      "awaiting_visual_review",
       "completed"
     ]
+  },
+  "visual_review": {
+    "artifact_hashes_revalidated": true,
+    "main_agent_may_record_review": false,
+    "modes": [
+      "vision_agent",
+      "human_operator"
+    ],
+    "production_default": "vision_agent",
+    "report_required": true
   }
 }

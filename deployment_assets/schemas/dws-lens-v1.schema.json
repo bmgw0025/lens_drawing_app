@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lensbot://schemas/dws-lens-1",
+  "title": "DWS Lens JSONL protocol",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/hello_ok"
+    },
+    {
+      "$ref": "#/$defs/inbound_message"
+    },
+    {
+      "$ref": "#/$defs/accepted"
+    },
+    {
+      "$ref": "#/$defs/send_text"
+    },
+    {
+      "$ref": "#/$defs/send_file"
+    },
+    {
+      "$ref": "#/$defs/send_result"
+    }
+  ],
+  "$defs": {
+    "request_id": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "gateway_version",
+        "dws_commit",
+        "robot_code",
+        "pid"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "hello"
+        },
+        "gateway_version": {
+          "const": "1.0.0"
+        },
+        "dws_commit": {
+          "const": "effde762277ad717a246e38b237a8297fa49aab7"
+        },
+        "robot_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "hello_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "host_version"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "hello_ok"
+        },
+        "host_version": {
+          "const": "1.0.0"
+        }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attachment_id",
+        "original_name",
+        "mime_type",
+        "size",
+        "sha256",
+        "spool_path"
+      ],
+      "properties": {
+        "attachment_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "original_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "spool_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sender_id",
+        "nick"
+      ],
+      "properties": {
+        "sender_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "staff_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "open_dingtalk_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nick": {
+          "type": "string"
+        }
+      }
+    },
+    "inbound_message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "event_id",
+        "msg_id",
+        "robot_code",
+        "conversation_id",
+        "conversation_type",
+        "sender",
+        "message_type",
+        "text",
+        "attachments",
+        "received_at"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "inbound_message"
+        },
+        "request_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "event_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "msg_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reply_to_msg_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "robot_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sender": {
+          "$ref": "#/$defs/sender"
+        },
+        "message_type": {
+          "enum": [
+            "text",
+            "file",
+            "rich_text",
+            "unknown"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "accepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "event_id"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "accepted"
+        },
+        "request_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "event_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "send_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "conversation_id",
+        "markdown"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "send_text"
+        },
+        "request_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reply_to_msg_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "markdown": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "send_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "conversation_id",
+        "file_path",
+        "display_name"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "send_file"
+        },
+        "request_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "conversation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "send_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "request_id",
+        "ok",
+        "provider_key",
+        "error"
+      ],
+      "properties": {
+        "v": {
+          "const": "dws-lens/1"
+        },
+        "type": {
+          "const": "send_result"
+        },
+        "request_id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "provider_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "message",
+                "retryable"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+

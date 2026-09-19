@@ -1,5 +1,16 @@
 # 更新日志
 
+## V4.1 (2026-08-18)
+
+面向软件使用人员的说明请参阅 [V4.1 版本更新说明](V4.1_版本更新说明.md)。
+
+- 中等置信 AD/MD 或多个可行拓扑在候选选择后仍需用户证据逐项确认，Agent 选择不再自动提升原始置信度。
+- Agent Interface 升级到 4.1.0，Request Schema 升级到 1.2，Task Schema 升级到 1.1。
+- 新增 `geometry_cases.json` 与 `resolve-geometry`，两阶段处理虚拟胶合面和 AD/MD 归属；Agent 只能选择候选 ID。
+- 新增任务级 `deployment_policy.json` 快照，固定部署时批准的加工默认值，正常任务不再逐单确认默认值。
+- `review` 支持 `vision_agent` 和 `human_operator`，并校验结构化报告引用的全部 PDF/contact sheet SHA-256。
+- ZOS-API 路径支持显式参数和环境变量优先，并在提取结果中记录实际 DLL 路径。
+
 ## V4.0 (2026-08-14)
 
 面向软件使用人员的说明请参阅 [V4.0 版本更新说明](V4.0_版本更新说明.md)。

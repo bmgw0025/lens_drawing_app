@@ -26,7 +26,7 @@ def _native_renderer_root(renderer_root: str | os.PathLike[str]) -> Path:
     expected = install_root().resolve()
     if root != expected:
         raise RendererError(
-            f"V4 Agent 只能使用当前运行时内置绘图引擎: {expected}; 收到 {root}"
+            f"Agent 只能使用当前运行时内置绘图引擎: {expected}; 收到 {root}"
         )
     return root
 
@@ -57,7 +57,7 @@ def _load_renderer(renderer_root: str | os.PathLike[str]):
         required = ("batch_import.py", "main.py", "settings.py", "config.py")
         missing = [name for name in required if not (root / name).is_file()]
         if missing:
-            raise RendererError(f"V4 绘图引擎目录缺少文件: {', '.join(missing)}")
+            raise RendererError(f"绘图引擎目录缺少文件: {', '.join(missing)}")
     batch_import = importlib.import_module("batch_import")
     main = importlib.import_module("main")
     settings = importlib.import_module("settings")
@@ -69,6 +69,7 @@ def _build_render_inputs(
     draft: DrawingDraft,
     renderer_root: str | os.PathLike[str],
     process_patch: ApprovedProcessPatch | None,
+    base_settings: dict[str, Any] | None = None,
 ):
     batch_import, main, settings_module, config = _load_renderer(renderer_root)
     row = draft.row
@@ -103,7 +104,7 @@ def _build_render_inputs(
     if errors:
         raise RendererError("现有绘图引擎几何校验失败: " + "; ".join(errors))
 
-    effective_settings = get_agent_default_settings()
+    effective_settings = dict(base_settings or get_agent_default_settings())
     page_overrides: dict[str, dict[str, Any]] = {}
     if process_patch is not None:
         effective_settings.update(process_patch.global_overrides)
@@ -124,11 +125,12 @@ def preflight_draft(
     draft: DrawingDraft,
     renderer_root: str | os.PathLike[str] = DEFAULT_RENDERER_ROOT,
     process_patch: ApprovedProcessPatch | None = None,
+    base_settings: dict[str, Any] | None = None,
 ) -> None:
     if draft.status != "accepted":
         raise RendererError(f"group {draft.group_index} 尚未通过自动接受规则")
     main, drawing, effective_settings, page_overrides = _build_render_inputs(
-        draft, renderer_root, process_patch
+        draft, renderer_root, process_patch, base_settings
     )
     validator = getattr(main, "_validate_all_lens_page_settings", None)
     if validator is None:
@@ -141,12 +143,13 @@ def render_draft(
     output_dir: str | os.PathLike[str],
     renderer_root: str | os.PathLike[str] = DEFAULT_RENDERER_ROOT,
     process_patch: ApprovedProcessPatch | None = None,
+    base_settings: dict[str, Any] | None = None,
 ) -> dict[str, str | int]:
     if draft.status != "accepted":
         raise RendererError(f"group {draft.group_index} 尚未通过自动接受规则")
     row = draft.row
     main, drawing, effective_settings, page_overrides = _build_render_inputs(
-        draft, renderer_root, process_patch
+        draft, renderer_root, process_patch, base_settings
     )
     destination = Path(output_dir).resolve() / "drawings"
     save_dir = destination / _output_folder(

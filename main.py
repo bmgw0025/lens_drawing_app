@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lens Drawing Tool V4.0."""
+"""Lens Drawing Tool V4.1."""
 import sys,os,math,io,textwrap
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 import matplotlib

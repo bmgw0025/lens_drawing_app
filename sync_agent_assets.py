@@ -1,4 +1,4 @@
-"""Generate and verify the V4 Agent spec shared by the app and bundled Skill."""
+"""Generate and verify the Agent spec shared by the app and bundled Skill."""
 
 from __future__ import annotations
 

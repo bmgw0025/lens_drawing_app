@@ -1,0 +1,42 @@
+[runtime]
+data_dir = "C:\\ProgramData\\LensBot"
+log_level = "INFO"
+pipe_name = "\\\\.\\pipe\\lensbot-gateway-v1"
+max_jsonl_bytes = 4194304
+
+[dws]
+exe = "C:\\Program Files\\LensBot\\gateway\\dws-lens.exe"
+robot_code = ""
+allowed_groups = []
+allowed_users = []
+spool_dir = "C:\\ProgramData\\LensBot\\gateway-spool"
+
+[lensdrawing]
+exe = "C:\\Program Files\\LensBot\\lensdrawing\\LensDrawing.exe"
+deployment_policy = "C:\\ProgramData\\LensBot\\config\\deployment_policy.json"
+zemax_root = ""
+opticstudio_install_dir = ""
+command_timeout_seconds = 600
+
+[agent]
+node_exe = "C:\\Program Files\\LensBot\\agent\\node.exe"
+worker = "C:\\Program Files\\LensBot\\agent\\agent-worker.mjs"
+models = "C:\\ProgramData\\LensBot\\config\\models.json"
+request_timeout_seconds = 300
+
+[vision]
+timeout_seconds = 90
+max_images_per_call = 4
+max_image_edge_px = 2000
+schema_repair_attempts = 1
+
+[queue]
+zos_concurrency = 1
+
+[delivery]
+directory = "C:\\ProgramData\\LensBot\\deliveries"
+send_file_before_summary = true
+
+[retention]
+days = 0
+

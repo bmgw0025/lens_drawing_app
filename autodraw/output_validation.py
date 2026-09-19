@@ -572,8 +572,8 @@ def _contact_sheets(
 def validate(
     root: Path,
     render_dir: Path,
-    human_review: str,
-    human_note: str,
+    visual_review: str,
+    visual_note: str,
 ) -> dict[str, Any]:
     root = root.resolve()
     render_dir = render_dir.resolve()
@@ -648,12 +648,12 @@ def validate(
         "schema_version": "2.0",
         "validation_root": str(root),
         "automated_checks_passed": automated_passed,
-        "human_visual_review": {
-            "status": human_review,
-            "note": human_note,
+        "visual_review": {
+            "status": visual_review,
+            "note": visual_note,
             "contact_sheets": contact_sheets,
         },
-        "all_checks_passed": automated_passed and human_review == "passed",
+        "all_checks_passed": automated_passed and visual_review == "passed",
         "audit_files": audits,
         "group_count": len(groups),
         "excluded_count": len(exclusions),

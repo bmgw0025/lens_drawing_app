@@ -14,6 +14,7 @@ from .models import ExtractedSystem, SurfaceRecord
 
 
 DEFAULT_INSTALL_DIR = Path(r"C:\Program Files\Ansys Zemax OpticStudio 2022 R2.01")
+DEFAULT_ZEMAX_ROOT = Path.home() / "Documents" / "Zemax"
 
 
 class ZosApiError(RuntimeError):
@@ -148,11 +149,26 @@ def _read_tilt_decenter(surface: Any) -> dict[str, float]:
     return values
 
 
+def _registry_zemax_root() -> Path | None:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Zemax") as key:
+            return Path(winreg.QueryValueEx(key, "ZemaxRoot")[0])
+    except OSError:
+        return None
+
+
 class NativeZosApiProvider:
     """Read-only OpticStudio bridge for one file per process."""
 
-    def __init__(self, install_dir: str | os.PathLike[str] | None = None):
-        self.install_dir = Path(install_dir or os.environ.get("ZEMAX_INSTALL_DIR") or DEFAULT_INSTALL_DIR)
+    def __init__(
+        self,
+        install_dir: str | os.PathLike[str] | None = None,
+        zemax_root: str | os.PathLike[str] | None = None,
+    ):
+        self.install_dir = Path(install_dir).expanduser() if install_dir else None
+        self.zemax_root = Path(zemax_root).expanduser() if zemax_root else None
+        self.resolved_zemax_dir = None
+        self.dll_paths: dict[str, str] = {}
         self.app = None
         self.system = None
         self.connection = None
@@ -165,9 +181,37 @@ class NativeZosApiProvider:
         try:
             import clr
 
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Zemax") as key:
-                zemax_root = winreg.QueryValueEx(key, "ZemaxRoot")[0]
-            nethelper = Path(zemax_root) / "ZOS-API" / "Libraries" / "ZOSAPI_NetHelper.dll"
+            if self.zemax_root is None:
+                configured_root = os.environ.get("ZEMAX_ROOT")
+                self.zemax_root = (
+                    Path(configured_root).expanduser()
+                    if configured_root
+                    else _registry_zemax_root()
+                )
+            if self.zemax_root is None:
+                raise ZosApiError(
+                    "未配置 ZemaxRoot；请显式传入 zemax_root、设置 ZEMAX_ROOT，"
+                    "或修复 HKCU\\Software\\Zemax\\ZemaxRoot。"
+                    f"已知常见目录仅供核对: {DEFAULT_ZEMAX_ROOT}"
+                )
+            self.zemax_root = self.zemax_root.resolve()
+
+            if self.install_dir is None:
+                configured_install = os.environ.get("ZEMAX_INSTALL_DIR")
+                if configured_install:
+                    self.install_dir = Path(configured_install).expanduser()
+            if self.install_dir is None:
+                raise ZosApiError(
+                    "未配置 OpticStudio 安装目录；请显式传入 install_dir 或设置 "
+                    f"ZEMAX_INSTALL_DIR。已知常见目录仅供核对: {DEFAULT_INSTALL_DIR}"
+                )
+            self.install_dir = self.install_dir.resolve()
+            if not self.install_dir.is_dir():
+                raise ZosApiError(f"OpticStudio 安装目录不存在: {self.install_dir}")
+
+            nethelper = (
+                self.zemax_root / "ZOS-API" / "Libraries" / "ZOSAPI_NetHelper.dll"
+            )
             if not nethelper.is_file():
                 raise ZosApiError(f"未找到 ZOSAPI_NetHelper.dll: {nethelper}")
 
@@ -176,9 +220,26 @@ class NativeZosApiProvider:
 
             if not ZOSAPI_NetHelper.ZOSAPI_Initializer.Initialize(str(self.install_dir)):
                 raise ZosApiError(f"ZOS-API 初始化失败: {self.install_dir}")
-            resolved = Path(ZOSAPI_NetHelper.ZOSAPI_Initializer.GetZemaxDirectory())
-            clr.AddReference(str(resolved / "ZOSAPI.dll"))
-            clr.AddReference(str(resolved / "ZOSAPI_Interfaces.dll"))
+            resolved = Path(
+                ZOSAPI_NetHelper.ZOSAPI_Initializer.GetZemaxDirectory()
+            ).resolve()
+            zosapi = resolved / "ZOSAPI.dll"
+            interfaces = resolved / "ZOSAPI_Interfaces.dll"
+            if not zosapi.is_file() or not interfaces.is_file():
+                raise ZosApiError(
+                    "ZOS-API 初始化目录缺少 DLL: "
+                    f"{zosapi}; {interfaces}"
+                )
+            self.resolved_zemax_dir = resolved
+            self.dll_paths = {
+                "zemax_root": str(self.zemax_root),
+                "opticstudio_install_dir": str(self.install_dir),
+                "zosapi_nethelper": str(nethelper.resolve()),
+                "zosapi": str(zosapi),
+                "zosapi_interfaces": str(interfaces),
+            }
+            clr.AddReference(str(zosapi))
+            clr.AddReference(str(interfaces))
             import ZOSAPI
 
             self.ZOSAPI = ZOSAPI
@@ -192,9 +253,6 @@ class NativeZosApiProvider:
             if self.system is None:
                 raise ZosApiError("无法取得 PrimarySystem")
             return self
-        except OSError as exc:
-            self.__exit__(type(exc), exc, exc.__traceback__)
-            raise ZosApiError("无法从 HKCU\\Software\\Zemax 定位 ZemaxRoot") from exc
         except Exception as exc:
             self.__exit__(type(exc), exc, exc.__traceback__)
             raise
@@ -299,4 +357,5 @@ class NativeZosApiProvider:
             configuration_count=configuration_count,
             current_configuration=current_configuration,
             surfaces=surfaces,
+            zosapi_paths=dict(self.dll_paths),
         )

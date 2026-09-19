@@ -1,88 +1,40 @@
-# Persistence and Agent Judgment
+# Persistence And Judgment
 
-## Contents
+## Immutable Task Evidence
 
-- Authoritative artifacts
-- Persistent versus judgment-based data
-- Virtual cemented interfaces
-- Resume and anti-drift rules
-- Failure handling
+A task locks:
 
-## Authoritative Artifacts
-
-`task_state.json` is the only authority for current status and next action. `AGENT_HANDOFF.md` is a readable derivative. Chat history is never authoritative.
-
-Task creation locks hashes for:
-
-- Task-local `AGENT_PROTOCOL.md`
-- Task-local request schema
-- Task-local generated Agent spec
-- Lens Drawing runtime identity and renderer manifest
-- All four `source_analysis` files
 - Source ZMX path and SHA-256
+- Evaluated ZOS-API surfaces, DLL paths and OpticStudio version
+- AGENT_PROTOCOL.md, request Schema and generated spec
+- Lens Drawing runtime and renderer manifests
+- deployment_policy.json and its SHA-256
+- geometry_cases.json and, when required, geometry_resolution.json
+- required_geometry_confirmations derived from the immutable candidates
+- Every submitted request revision, validation report, PDF audit and visual report
 
-Any mismatch blocks execution. Recreate the task with the current application instead of modifying snapshots.
+task_state.json is the status authority. Chat history is not.
 
-## Persistent Versus Judgment-Based Data
+## Deterministic Facts
 
-Persisted, deterministic data:
+Code determines GLAS-after-surface intervals, units, R/T/material values, supported surface classes, zero-thickness/type/radius/coordinate eligibility, candidate provenance, unit conversion and physical constraints.
 
-- Evaluated ZOS-API surface records and source hash
-- Glass intervals, cemented grouping, virtual-interface evidence
-- Authoritative per-lens Glass/T/R/MD/AD_left/AD_right values and provenance; legacy rows are compatibility views only
-- Blockers, confidence, warnings, and exact geometry-review values
-- Renderer defaults and supported process-field catalog
-- Submitted request versions, validation results, audit, PDF validation, human visual review, and delivery manifest
+AD is a full diameter derived only from explicit aperture or SemiDiameter. MD is a full diameter derived only from MechanicalSemiDiameter. Both Zemax radii are multiplied by two and converted to millimeters. AD must never be used as MD.
 
-Agent judgment required each task:
+## Agent Judgment
 
-- Translate user language into naming and whitelisted manufacturing fields
-- Decide whether evidence is sufficient or conflicting
-- Ask concise unresolved questions
-- Explain geometry blockers and medium-confidence evidence
-- Prepare concise evidence and status for the human reviewer without deciding the review result
+The Agent may select only IDs in geometry_cases.json. It may use surface sequence, GLAS intervals, left/right boundary roles and virtual-interface evidence to map candidates to physical lenses. A virtual interface always requires a selection even if only one topology candidate remains.
 
-Agent judgment must never mutate deterministic geometry or invent missing manufacturing requirements.
+The Agent must ask instead of guessing when different numeric candidates remain equally feasible, when data is missing, or when geometry is low-confidence or unsupported. Selecting a candidate does not promote its original confidence. Every required_geometry_confirmations item needs a matching evidence-backed geometry_confirmation decision. The Agent cannot turn a rejected topology candidate into an eligible one.
 
-Human operator judgment is a separate release gate. Only an authorized operator may inspect every rendered page and submit `review`; neither the Agent nor a vision-model advisory may record `passed`.
+## Supported Boundary
 
-Confidence gate: high-confidence geometry may proceed while every warning is disclosed at delivery; medium-confidence fields require exact acknowledgement before `run`; blocked or clearly low-confidence geometry stops the task.
+The renderer supports Sequential, one configuration, Standard spherical/plane groups of one to three physical lenses. Coincident zero-thickness virtual interfaces may be folded when all hard checks pass, while preserving side-specific AD values.
 
-The Agent baseline is versioned application data. GUI users may persist personal settings, but those settings are outside the Agent task contract and must never become the next task's defaults. Deliver `manufacturing_requirements_summary.md` and its JSON companion with every completed task.
+Non-sequential systems, nonzero tilt/decenter, unsupported aspheres/freeforms, unresolved multi-configuration geometry, real nonzero glue gaps and four or more physical elements remain blocked.
 
-## Virtual Cemented Interfaces
+## Review And Resume
 
-Zemax `GLAS` applies to the medium after a surface. Therefore glass names do not need to appear on adjacent LDE rows for the physical elements to be cemented.
+The configured visual reviewer is an independent release gate. Production normally uses vision_agent; human_operator is reserved for configured troubleshooting. Reports must bind all current PDFs and contact sheets by hash. The main Agent has no review tool.
 
-Treat separated glass intervals as one cemented connection only when all intervening media are non-glass, every gap thickness is zero, duplicated interface surface types and radii match, and neither surface has tilt/decenter. Record the connection as `virtual_cemented_interface` and collapse the duplicate surfaces into one logical R boundary.
-
-Preserve the previous lens's `AD_right` and the next lens's `AD_left` independently. Different values are valid when both come from their respective physical ZOS-API surfaces; set the legacy shared `row.ADn` to null and use `drawing_drafts[].lenses[]` for rendering and validation.
-
-Keep each physical side's MEMA evidence for the adjacent lens MD. A virtual interface can prove a triplet topology while a conflicting or non-fixed MEMA still produces a medium-confidence MD requiring exact acknowledgement. Topology approval is not permission to edit the MD.
-
-If thickness is nonzero, split the groups. If type, radius, or coordinate checks differ at zero thickness, classify as an ambiguous compound and block.
-
-Classify a single H-K9L element with two plane boundaries as an excluded prism. Preserve material, thickness, surface numbers, and radii; skip both PDFs and disclose it at delivery. Do not consume naming or production-code sequence numbers.
-
-## Resume and Anti-Drift Rules
-
-On every resume:
-
-1. Run `spec`; let the wrapper compare Skill and EXE hashes.
-2. Run `status <task-dir>`.
-3. Read the task-local protocol and state-directed artifacts.
-4. Verify unresolved questions and the latest submitted request revision.
-5. Continue only with the command allowed by the current state.
-
-Never replace a request after running has started. Never overwrite a nonempty result directory. Never copy results into another task as if they were newly validated.
-
-## Failure Handling
-
-- `blocked_geometry`: explain blockers; a new implementation or corrected ZMX is required.
-- `needs_clarification`: obtain missing evidence and submit a new request revision.
-- `validation_failed`: inspect the validation report; do not visually pass.
-- `execution_failed`: preserve partial artifacts and create a new task after correction.
-- `human_review_failed`: preserve the human review and create a new task after correction.
-- `release_blocked`: visual checks passed but production authorization is incomplete; do not deliver as released output.
-
-Only `completed` permits delivery from `delivery_manifest.json`.
+On resume, run spec and status, then follow next_action. Never overwrite a result, request history, geometry decision or review. visual_review_failed and release_blocked preserve all evidence; corrected work starts as a new task.
